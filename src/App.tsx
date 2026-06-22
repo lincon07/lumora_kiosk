@@ -11,6 +11,8 @@ import { MemberChips } from "./components/ui/reusables/member-chips";
 import { StoreProvider, useStore, type TabKey } from "./lib/store";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { AuthScreen } from "./app/auth/auth-screen";
+import { kioskConfig } from "./lib/kiosk";
+import { KioskRoot } from "./app/kiosk/kiosk-root";
 import { Loader2 } from "lucide-react";
 
 const todaySubtitle = new Date().toLocaleDateString(undefined, {
@@ -84,6 +86,12 @@ function Gate() {
 }
 
 function App() {
+  // Kiosk builds run the device-pairing experience (no user login). The mobile
+  // app build runs the normal authenticated flow.
+  if (kioskConfig.enabled) {
+    return <KioskRoot />
+  }
+
   return (
     <AuthProvider>
       <Gate />

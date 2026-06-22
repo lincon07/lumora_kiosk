@@ -158,3 +158,11 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used within AuthProvider")
   return ctx
 }
+
+/**
+ * Like {@link useAuth} but safe to call when there is no AuthProvider (e.g. the
+ * kiosk experience, which has no user session). Returns null instead of throwing.
+ */
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext)
+}

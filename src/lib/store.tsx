@@ -27,9 +27,10 @@ import {
 } from "./data"
 import { api, isSupabaseApi, syncGuard, type ApiMember, type CreateMemberInput, type Invite } from "./api"
 import { supabase } from "./supabase"
-import { useAuth } from "./auth"
+import { useOptionalAuth } from "./auth"
 import { notify } from "./push"
 import { type KioskDeviceStatus } from "./kiosk-status"
+import { fetchKioskSnapshot } from "./kiosk-data"
 
 export type TabKey = "calendar" | "chores" | "lists" | "meals" | "photos" | "settings"
 
@@ -207,8 +208,9 @@ type Store = {
 
 const StoreContext = createContext<Store | null>(null)
 
-export function StoreProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth()
+export function StoreProvider({ children, kioskMode = false }: { children: ReactNode; kioskMode?: boolean }) {
+  const auth = useOptionalAuth()
+  const user = auth?.user ?? null
   const [tab, setTab] = useState<TabKey>("calendar")
   const [activeMember, setActiveMember] = useState<string | null>(null)
   const [highlight, setHighlight] = useState<HighlightTarget>(null)
@@ -251,6 +253,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let alive = true
 
     const loadAll = async () => {
+      // Kiosk mode: the device has no user session, so pull the whole household
+      // snapshot through the token-scoped RPC instead of the authed API.
+      if (kioskMode) {
+        const snap = await fetchKioskSnapshot()
+        return {
+          members: snap.members,
+          calendars: snap.calendars,
+          events: snap.events,
+          chores: snap.chores,
+          lists: snap.lists,
+          meals: snap.meals,
+          notifications: snap.notifications,
+          photos: snap.photos,
+          kioskDevices: [] as KioskDeviceStatus[],
+        }
+      }
+
       const [m, cals, e, c, l, me, n, p] = await Promise.all([
         api.listMembers(),
         api.listCalendars(),
@@ -355,24 +374,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       debounce = setTimeout(() => void tick(), 400)
     }
 
-    // Subscribe to Postgres changes on every household-scoped table. RLS limits
-    // the events we receive to our own household.
-    const tables = [
-      "members",
-      "calendars",
-      "events",
-      "chores",
-      "lists",
-      "list_items",
-      "meals",
-      "notifications",
-      "notification_states",
-      "photos",
-      "households",
-      "kiosk_devices",
-    ]
+    // Kiosk mode has no RLS-scoped user session, so Postgres change events won't
+    // be delivered. Instead poll the snapshot RPC on a fixed interval to keep the
+    // wall display fresh.
     let channel: ReturnType<typeof supabase.channel> | undefined
-    if (isSupabaseApi) {
+    let pollTimer: ReturnType<typeof setInterval> | undefined
+
+    if (kioskMode) {
+      pollTimer = setInterval(() => void tick(), 20000)
+    } else if (isSupabaseApi) {
+      // Subscribe to Postgres changes on every household-scoped table. RLS limits
+      // the events we receive to our own household.
+      const tables = [
+        "members",
+        "calendars",
+        "events",
+        "chores",
+        "lists",
+        "list_items",
+        "meals",
+        "notifications",
+        "notification_states",
+        "photos",
+        "households",
+        "kiosk_devices",
+      ]
       let ch = supabase.channel("lumora-realtime")
       for (const table of tables) {
         ch = ch.on("postgres_changes", { event: "*", schema: "public", table }, scheduleSync)
@@ -390,11 +416,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false
       clearTimeout(debounce)
+      if (pollTimer) clearInterval(pollTimer)
       if (channel) void supabase.removeChannel(channel)
       window.removeEventListener("focus", onFocus)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [])
+  }, [kioskMode])
 
   const clearHighlight = useCallback(() => setHighlight(null), [])
 
