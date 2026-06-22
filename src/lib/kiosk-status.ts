@@ -1,4 +1,5 @@
 import { supabase } from "./supabase"
+import { registerOrClaimKiosk } from "./kiosk-register"
 
 export interface KioskDeviceStatus {
   id: string
@@ -17,6 +18,14 @@ let currentHouseholdId: string | null = null
 
 export async function startKioskStatusTracking(householdId: string, deviceName: string = "Kiosk Display") {
   currentHouseholdId = householdId
+
+  try {
+    // Register/claim this kiosk on first startup
+    await registerOrClaimKiosk(householdId, deviceName)
+  } catch (err) {
+    console.error("[v0] Failed to register kiosk:", err)
+    // Continue anyway - kiosk status table might not exist yet
+  }
 
   // Initial publish
   await publishKioskStatus(householdId, deviceName)

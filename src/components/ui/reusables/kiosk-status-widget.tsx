@@ -8,8 +8,22 @@ export function KioskStatusWidget() {
 
   if (!kiosk) {
     return (
-      <div className="rounded-lg border border-border/50 bg-muted/30 p-4 text-center text-sm text-muted-foreground">
-        No kiosk connected
+      <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+        <p className="text-sm font-medium text-amber-700">No kiosk device registered</p>
+        <p className="text-xs text-amber-600/80">
+          The kiosk app needs to sign in and register with this household to appear here. 
+          Make sure the kiosk is running with the same admin account.
+        </p>
+        <div className="flex gap-2 pt-2">
+          <div className="text-xs text-amber-600/80">
+            <p className="font-medium">Kiosk setup:</p>
+            <ol className="list-inside list-decimal space-y-1 pt-1">
+              <li>Run kiosk with admin credentials</li>
+              <li>Sign in to this household</li>
+              <li>Check browser console for [v0] debug logs</li>
+            </ol>
+          </div>
+        </div>
       </div>
     )
   }
