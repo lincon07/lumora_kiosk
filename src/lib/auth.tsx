@@ -10,6 +10,7 @@ import {
   type SignUpInput,
   type User,
 } from "./api"
+import { kioskConfig } from "./kiosk"
 
 type AuthStatus = "loading" | "authed" | "guest"
 
@@ -55,8 +56,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applySession])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    void refresh().then(async () => {
+      // If in kiosk mode and auto-signin is enabled, attempt to sign in
+      if (kioskConfig.autoSignIn && status === "loading") {
+        try {
+          const res = await api.signIn({
+            email: kioskConfig.adminEmail!,
+            password: kioskConfig.adminPassword!,
+          })
+          applySession(res.user, res.household)
+        } catch (err) {
+          console.warn("[Kiosk] Auto sign-in failed:", err)
+          // Fall back to normal auth flow
+        }
+      }
+    })
+  }, [refresh, applySession, status])
 
   const signUp = useCallback(
     async (input: SignUpInput) => {

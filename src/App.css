@@ -163,12 +163,6 @@
 }
 
 @layer utilities {
-  /* iOS-style frosted glass for sticky bars */
-  .ios-blur {
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-  }
-
   /* Hide scrollbars on horizontal strips */
   .no-scrollbar {
     -ms-overflow-style: none;
@@ -176,14 +170,6 @@
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
-  }
-
-  /* iOS safe-area helpers */
-  .pt-safe {
-    padding-top: env(safe-area-inset-top);
-  }
-  .pb-safe {
-    padding-bottom: env(safe-area-inset-bottom);
   }
 
   /* Search-target attention flash */

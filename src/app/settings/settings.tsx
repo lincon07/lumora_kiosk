@@ -60,6 +60,7 @@ import { BottomSheet } from "@/components/ui/reusables/bottom-sheet"
 import { QrCode } from "@/components/ui/reusables/qr-code"
 import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth"
+import { kioskConfig } from "@/lib/kiosk"
 import { type Invite } from "@/lib/api"
 import {
   getPushPermission,
@@ -180,7 +181,7 @@ function AppearanceControl() {
               aria-label={label}
               title={label}
               className={cn(
-                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all active:scale-95",
+                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all",
                 active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -1051,13 +1052,15 @@ export function SettingsView() {
         <h2 className="px-1 pb-2 text-sm font-semibold text-destructive">Danger Zone</h2>
         <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
           <ActionRow icon={Bell} label="Clear notifications" onClick={() => setConfirm("clear")} />
-          {can("hub") ? (
-            <ActionRow icon={RefreshCw} label="Reset hub data" onClick={() => setConfirm("reset")} destructive />
-          ) : null}
-          <ActionRow icon={LogOut} label="Sign out" onClick={() => setConfirm("signout")} destructive />
-          {can("hub") ? (
-            <ActionRow icon={Trash2} label="Delete account" onClick={() => setConfirm("delete")} destructive />
-          ) : null}
+  {can("hub") ? (
+  <ActionRow icon={RefreshCw} label="Reset hub data" onClick={() => setConfirm("reset")} destructive />
+  ) : null}
+{!kioskConfig.hideSignOut ? (
+  <ActionRow icon={LogOut} label="Sign out" onClick={() => setConfirm("signout")} destructive />
+  ) : null}
+{can("hub") ? (
+  <ActionRow icon={Trash2} label="Delete account" onClick={() => setConfirm("delete")} destructive />
+  ) : null}
         </div>
       </section>
 

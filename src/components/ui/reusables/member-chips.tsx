@@ -8,7 +8,7 @@ export function MemberChips() {
   const { members, activeMember, setActiveMember } = useStore()
 
   return (
-    <div className="ios-blur sticky top-0 z-20 border-b border-border/60 bg-background/80">
+    <div className="sticky top-0 z-20 border-b border-border/60 bg-background">
       <div className="no-scrollbar mx-auto flex max-w-2xl gap-2 overflow-x-auto px-4 py-2.5">
         <button
           type="button"

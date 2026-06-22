@@ -46,7 +46,7 @@ export function PhotosView() {
           <p className="text-sm font-semibold text-white">{featured.caption}</p>
           <p className="text-xs text-white/80">Now showing on your hub</p>
         </div>
-        <span className="absolute right-3 top-3 rounded-full bg-black/30 px-2 py-1 text-[11px] font-medium text-white ios-blur">
+        <span className="absolute right-3 top-3 rounded-full bg-black/30 px-2 py-1 text-[11px] font-medium text-white">
           Slideshow
         </span>
       </div>
@@ -65,7 +65,7 @@ export function PhotosView() {
               <button
                 type="button"
                 aria-label="Favorite photo"
-                className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-black/30 text-white ios-blur transition-colors hover:text-primary"
+                className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-black/30 text-white transition-colors hover:text-primary"
               >
                 <Heart className="size-3.5" />
               </button>

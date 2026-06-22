@@ -41,7 +41,7 @@ export function HeaderNav({ title, subtitle }: { title: string; subtitle?: strin
   }
 
   return (
-    <header className="ios-blur sticky top-0 z-30 border-b border-border/60 bg-card/70 pt-safe">
+    <header className="sticky top-0 z-30 border-b border-border/60 bg-card">
       <div className="mx-auto max-w-2xl px-4 pt-3 pb-2">
         {/* Inline title + actions */}
         <div className="flex items-center justify-between gap-3">
@@ -55,7 +55,7 @@ export function HeaderNav({ title, subtitle }: { title: string; subtitle?: strin
               onClick={() => setSearchOpen((v) => !v)}
               aria-label="Search"
               className={cn(
-                "flex size-9 items-center justify-center rounded-full transition-colors active:scale-95",
+                "flex size-9 items-center justify-center rounded-full transition-colors",
                 searchOpen ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground",
               )}
             >
@@ -65,7 +65,7 @@ export function HeaderNav({ title, subtitle }: { title: string; subtitle?: strin
               type="button"
               onClick={() => setTheme(isDark ? "light" : "dark")}
               aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-              className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground active:scale-95"
+              className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
             >
               {isDark ? <Sun className="size-5" /> : <Moon className="size-5" />}
             </button>
@@ -75,7 +75,7 @@ export function HeaderNav({ title, subtitle }: { title: string; subtitle?: strin
                 onClick={() => setNotifOpen((v) => !v)}
                 aria-label="Notifications"
                 className={cn(
-                  "relative flex size-9 items-center justify-center rounded-full transition-colors active:scale-95",
+                  "relative flex size-9 items-center justify-center rounded-full transition-colors",
                   notifOpen ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground",
                 )}
               >
