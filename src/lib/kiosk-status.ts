@@ -44,6 +44,15 @@ async function publishKioskStatus(householdId: string, deviceName: string) {
   try {
     const status = await getKioskMetrics()
 
+    console.log("[v0] Publishing kiosk status:", {
+      household_id: householdId,
+      device_name: deviceName,
+      wifi_signal: status.wifi_signal,
+      ping_latency_ms: status.ping_latency_ms,
+      battery_percent: status.battery_percent,
+      is_online: status.is_online,
+    })
+
     // Upsert into kiosk_devices table
     const { error } = await supabase.from("kiosk_devices").upsert(
       {
@@ -55,10 +64,12 @@ async function publishKioskStatus(householdId: string, deviceName: string) {
     )
 
     if (error) {
-      console.error("[Kiosk] Supabase upsert error:", error)
+      console.error("[v0] Kiosk upsert error:", error)
+    } else {
+      console.log("[v0] Kiosk status published successfully")
     }
   } catch (err) {
-    console.error("[Kiosk] Error publishing status:", err)
+    console.error("[v0] Error publishing kiosk status:", err)
   }
 }
 
