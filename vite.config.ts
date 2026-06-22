@@ -8,25 +8,15 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async ({ mode }) => {
-  // Supabase credentials are provided as NEXT_PUBLIC_*/SUPABASE_* env vars
-  // (not VITE_-prefixed), so they aren't exposed to client code automatically.
-  // Load them here and surface them as import.meta.env.VITE_SUPABASE_* so the
-  // browser client can read them.
-  const env = loadEnv(mode, process.cwd(), "")
-  const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL || env.SUPABASE_URL || ""
-  const supabaseAnonKey =
-    env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    env.SUPABASE_ANON_KEY ||
-    env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    ""
+  // Vite automatically exposes env vars with VITE_ prefix to client code
+  // via import.meta.env.VITE_*. Users should set VITE_SUPABASE_URL and
+  // VITE_SUPABASE_ANON_KEY in their .env files.
+  const env = loadEnv(mode, process.cwd(), "VITE_")
 
   return {
   plugins: [react(), tailwindcss()],
 
-  define: {
-    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
-    "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(supabaseAnonKey),
-  },
+  define: {},
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

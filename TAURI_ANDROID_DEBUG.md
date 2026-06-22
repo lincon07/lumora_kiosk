@@ -22,12 +22,10 @@ If you see:
 **FIX**: You're missing Supabase credentials in your `.env.local`:
 
 ```bash
-# Create .env.local in project root:
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+# Create .env.local in project root (use VITE_ prefix for Vite):
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
 ```
-
-Or use the `SUPABASE_*` variants (without `NEXT_PUBLIC_`).
 
 ### Step 3: Missing Auto-Signin Credentials
 

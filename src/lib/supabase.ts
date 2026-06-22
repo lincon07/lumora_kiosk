@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 
-// Credentials are surfaced as VITE_SUPABASE_* by vite.config.ts (mapped from the
-// NEXT_PUBLIC_SUPABASE_* / SUPABASE_* env the integration provides).
+// Credentials are read directly from VITE_SUPABASE_* environment variables.
+// Set these in .env or .env.local files with VITE_ prefix.
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
