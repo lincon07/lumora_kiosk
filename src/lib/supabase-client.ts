@@ -881,5 +881,40 @@ export function createSupabaseApi(): LumoraApi {
       ) as Row[]
       return rows.map(toPhoto)
     },
+
+    async createPhoto(input) {
+      const hid = await requireHouseholdId()
+      const inserted = unwrap(
+        await supabase
+          .from("photos")
+          .insert({
+            household_id: hid,
+            src: input.src,
+            caption: input.caption ?? "",
+          })
+          .select(),
+      ) as Row[]
+      return toPhoto(inserted[0])
+    },
+
+    async deletePhoto(id) {
+      // Look up the src so we can clean up storage too (best-effort).
+      const { data: row } = await supabase.from("photos").select("src").eq("id", id).single()
+      unwrap(await supabase.from("photos").delete().eq("id", id).select())
+      if (row?.src) {
+        // Extract path relative to bucket root (everything after "/object/public/photos/")
+        try {
+          const url = new URL(row.src)
+          const marker = "/object/public/photos/"
+          const idx = url.pathname.indexOf(marker)
+          if (idx !== -1) {
+            const path = url.pathname.slice(idx + marker.length)
+            await supabase.storage.from("photos").remove([path])
+          }
+        } catch {
+          /* noop if URL parsing fails */
+        }
+      }
+    },
   }
 }

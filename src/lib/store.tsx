@@ -203,6 +203,10 @@ type Store = {
   markAllNotificationsRead: () => void
   clearNotifications: () => void
 
+  // photos
+  addPhoto: (p: Omit<Photo, "id">) => void
+  deletePhoto: (id: string) => void
+
   search: (query: string) => SearchResult[]
 }
 
@@ -374,32 +378,34 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       debounce = setTimeout(() => void tick(), 400)
     }
 
-    // Kiosk mode has no RLS-scoped user session, so Postgres change events won't
-    // be delivered. Instead poll the snapshot RPC on a fixed interval to keep the
-    // wall display fresh.
-    let channel: ReturnType<typeof supabase.channel> | undefined
-    let pollTimer: ReturnType<typeof setInterval> | undefined
+    // All tables that we subscribe to for Realtime changes. In kiosk mode the
+    // anon key's RLS won't scope events to a household, but the broadcast still
+    // fires on any public row change which is sufficient to trigger a re-fetch
+    // of the SECURITY DEFINER kiosk_fetch_all snapshot.
+    const tables = [
+      "members",
+      "calendars",
+      "events",
+      "chores",
+      "lists",
+      "list_items",
+      "meals",
+      "notifications",
+      "notification_states",
+      "photos",
+      "households",
+      "kiosk_devices",
+    ]
 
-    if (kioskMode) {
-      pollTimer = setInterval(() => void tick(), 20000)
-    } else if (isSupabaseApi) {
-      // Subscribe to Postgres changes on every household-scoped table. RLS limits
-      // the events we receive to our own household.
-      const tables = [
-        "members",
-        "calendars",
-        "events",
-        "chores",
-        "lists",
-        "list_items",
-        "meals",
-        "notifications",
-        "notification_states",
-        "photos",
-        "households",
-        "kiosk_devices",
-      ]
-      let ch = supabase.channel("lumora-realtime")
+    let channel: ReturnType<typeof supabase.channel> | undefined
+
+    if (isSupabaseApi || kioskMode) {
+      // Subscribe to Postgres changes on every relevant table.
+      // In authenticated mode RLS scopes events to the user's own household.
+      // In kiosk mode we get unscoped notifications that trigger a full
+      // kiosk_fetch_all re-fetch (the RPC enforces its own token-based scoping).
+      const channelName = kioskMode ? "lumora-kiosk-realtime" : "lumora-realtime"
+      let ch = supabase.channel(channelName)
       for (const table of tables) {
         ch = ch.on("postgres_changes", { event: "*", schema: "public", table }, scheduleSync)
       }
@@ -416,7 +422,6 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     return () => {
       alive = false
       clearTimeout(debounce)
-      if (pollTimer) clearInterval(pollTimer)
       if (channel) void supabase.removeChannel(channel)
       window.removeEventListener("focus", onFocus)
       document.removeEventListener("visibilitychange", onVisible)
@@ -501,10 +506,14 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     const email = user.email.toLowerCase()
     return members.find((m) => m.account?.toLowerCase() === email) ?? null
   }, [members, user])
-  const isAdmin = currentMember?.role === "admin"
+  const isAdmin = kioskMode ? true : currentMember?.role === "admin"
   const can = useCallback(
-    (area: PermissionArea) => memberCan(currentMember, area),
-    [currentMember],
+    (area: PermissionArea) => {
+      // Kiosk is a claimed, permission-granted display — allow all operations.
+      if (kioskMode) return true
+      return memberCan(currentMember, area)
+    },
+    [kioskMode, currentMember],
   )
 
   // ----- calendars ---------------------------------------------------------
@@ -639,6 +648,20 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     api.clearNotifications().catch(() => {})
   }, [])
 
+  // ----- photos ---------------------------------------------------------------
+  const addPhoto = useCallback((p: Omit<Photo, "id">) => {
+    const tmpId = uid("pho")
+    setPhotos((prev) => [{ ...p, id: tmpId }, ...prev])
+    api
+      .createPhoto(p)
+      .then((real) => setPhotos((prev) => prev.map((x) => (x.id === tmpId ? real : x))))
+      .catch(() => setPhotos((prev) => prev.filter((x) => x.id !== tmpId)))
+  }, [])
+  const deletePhoto = useCallback((id: string) => {
+    setPhotos((prev) => prev.filter((p) => p.id !== id))
+    api.deletePhoto(id).catch(() => {})
+  }, [])
+
   const search = useCallback(
     (query: string): SearchResult[] => {
       const q = query.trim().toLowerCase()
@@ -756,6 +779,8 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       deleteNotification,
       markAllNotificationsRead,
       clearNotifications,
+      addPhoto,
+      deletePhoto,
       search,
     }),
     [
@@ -802,6 +827,8 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       deleteNotification,
       markAllNotificationsRead,
       clearNotifications,
+      addPhoto,
+      deletePhoto,
       search,
     ],
   )

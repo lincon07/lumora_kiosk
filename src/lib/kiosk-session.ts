@@ -23,6 +23,10 @@ import { supabase } from "./supabase"
 const TOKEN_KEY = "lumora.kiosk.deviceToken"
 const NAME_KEY = "lumora.kiosk.deviceName"
 
+// Module-level in-flight promise lock — prevents React StrictMode double-mount
+// (or any concurrent call) from racing to create two device rows.
+let _registerPromise: Promise<string | null> | null = null
+
 export type KioskState = {
   found: boolean
   deviceId: string | null
@@ -86,29 +90,46 @@ export function setDeviceName(name: string) {
 /**
  * Ensure this device has a token. Registers a fresh unclaimed device the first
  * time the kiosk is ever launched, then returns the token.
+ *
+ * Uses a module-level promise lock so concurrent calls (e.g. React StrictMode
+ * double-mount) never race to insert two rows into kiosk_devices.
  */
 export async function ensureRegistered(deviceName?: string): Promise<string | null> {
+  // Fast path — already registered.
   const existing = getDeviceToken()
   if (existing) return existing
 
-  const name = deviceName || getDeviceName()
-  const { data, error } = await supabase.rpc("kiosk_register", { p_device_name: name })
-  if (error) {
-    console.error("[kiosk] kiosk_register failed:", error.message, error.code)
-    // Surface a user-friendly message for missing RPC (PGRST202 = function not found)
-    if (error.code === "PGRST202" || error.message?.includes("Could not find the function")) {
-      throw new Error(
-        "The kiosk_register function is not deployed yet. Please run the Supabase migration.",
-      )
+  // Dedup: if another call already started the registration, share that promise.
+  if (_registerPromise) return _registerPromise
+
+  _registerPromise = (async () => {
+    // Check again inside the lock — first caller might have just written the token.
+    const token = getDeviceToken()
+    if (token) return token
+
+    const name = deviceName || getDeviceName()
+    const { data, error } = await supabase.rpc("kiosk_register", { p_device_name: name })
+    if (error) {
+      console.error("[kiosk] kiosk_register failed:", error.message, error.code)
+      if (error.code === "PGRST202" || error.message?.includes("Could not find the function")) {
+        throw new Error(
+          "The kiosk_register function is not deployed yet. Please run the Supabase migration.",
+        )
+      }
+      throw new Error(`Registration failed: ${error.message}`)
     }
-    throw new Error(`Registration failed: ${error.message}`)
-  }
-  const token = (data as { device_token?: string })?.device_token ?? null
-  if (token) {
-    setDeviceToken(token)
-    setDeviceName(name)
-  }
-  return token
+    const newToken = (data as { device_token?: string })?.device_token ?? null
+    if (newToken) {
+      setDeviceToken(newToken)
+      setDeviceName(name)
+    }
+    return newToken
+  })().finally(() => {
+    // Release the lock so a genuine retry after a hard failure can try again.
+    _registerPromise = null
+  })
+
+  return _registerPromise
 }
 
 /** Poll the current claim/pairing state for this device. */

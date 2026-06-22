@@ -193,6 +193,8 @@ export interface LumoraApi {
 
   // photos
   listPhotos(): Promise<Photo[]>
+  createPhoto(input: Omit<Photo, "id">): Promise<Photo>
+  deletePhoto(id: string): Promise<void>
 }
 
 // ----- Token storage --------------------------------------------------------
@@ -301,6 +303,8 @@ function createHttpApi(baseUrl: string): LumoraApi {
     clearNotifications: () => req("/notifications", "DELETE"),
 
     listPhotos: () => req("/photos", "GET"),
+    createPhoto: (input) => req("/photos", "POST", input),
+    deletePhoto: (id) => req(`/photos/${id}`, "DELETE"),
   }
 }
 
@@ -829,6 +833,20 @@ function createMockApi(): LumoraApi {
       const hh = requireHouseholdId(db)
       return delay(db.photos.filter((p) => p.householdId === hh).map(pub))
     },
+    async createPhoto(input) {
+      const db = loadMockDb()
+      const hh = requireHouseholdId(db)
+      const row: Owned<Photo> = { ...input, id: rid("pho"), householdId: hh }
+      db.photos.unshift(row)
+      saveMockDb(db)
+      return delay(pub(row))
+    },
+    async deletePhoto(id) {
+      const db = loadMockDb()
+      db.photos = db.photos.filter((p) => p.id !== id)
+      saveMockDb(db)
+      return delay(undefined)
+    },
   }
 }
 
@@ -862,6 +880,7 @@ const MUTATING_METHODS = new Set<keyof LumoraApi>([
   "createMeal", "updateMeal", "deleteMeal",
   "createNotification", "updateNotification", "deleteNotification",
   "markAllNotificationsRead", "clearNotifications",
+  "createPhoto", "deletePhoto",
 ])
 
 /** Wrap the adapter so every mutating method stamps the sync guard. */
