@@ -18,6 +18,7 @@ import {
   type KioskState,
 } from "./kiosk-session"
 import { collectKioskMetrics } from "./kiosk-metrics"
+import { notify } from "./push"
 
 type KioskContextValue = {
   /** Current pairing/claim state for this device. */
@@ -37,8 +38,8 @@ const KioskContext = createContext<KioskContextValue | null>(null)
 // How often to poll claim-state while UNPAIRED (waiting for a family member to
 // scan). Kept brisk so pairing feels instant.
 const PAIR_POLL_MS = 3000
-// How often to poll once paired (just to catch an external unpair) + heartbeat.
-const PAIRED_POLL_MS = 30000
+// How often to send a heartbeat once paired.
+const HEARTBEAT_MS = 30000
 
 export function KioskProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<KioskState>({
@@ -52,13 +53,29 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   })
   const [loading, setLoading] = useState(true)
   const [initError, setInitError] = useState<string | null>(null)
+  // Tracks whether the device is currently paired so the polling loop and
+  // Realtime handler can compare before/after to fire push notifications.
   const pairedRef = useRef(false)
+  // Guards the poll loop — it must not start until ensureRegistered() resolves.
+  const initializedRef = useRef(false)
 
   const refresh = useCallback(async () => {
     try {
+      const prev = pairedRef.current
       const next = await fetchKioskState()
       pairedRef.current = next.paired
       setState(next)
+
+      // Fire a push notification on state transitions.
+      if (!prev && next.paired && next.householdName) {
+        void notify(
+          "Kiosk claimed",
+          `This hub is now connected to ${next.householdName}.`,
+        )
+      }
+      if (prev && !next.paired) {
+        void notify("Kiosk disconnected", "This hub has been unpaired from its household.")
+      }
     } catch (err) {
       console.error("[kiosk] fetchKioskState error:", err)
       // Don't throw — keep last known state so polling can retry
@@ -71,6 +88,8 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   // Register the device once on launch, then resolve initial state.
+  // The in-flight promise lock in kiosk-session.ts prevents StrictMode
+  // double-mount from creating two device rows.
   useEffect(() => {
     let alive = true
     ;(async () => {
@@ -78,6 +97,7 @@ export function KioskProvider({ children }: { children: ReactNode }) {
         await ensureRegistered()
         if (!alive) return
         await refresh()
+        initializedRef.current = true
       } catch (err) {
         console.error("[kiosk] init error:", err)
         if (alive) {
@@ -94,17 +114,25 @@ export function KioskProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh])
 
-  // Adaptive polling: fast while waiting to be claimed, slow once paired.
+  // While unpaired: poll briskly so claiming feels instant.
+  // While paired: only send a periodic heartbeat (data stays fresh via Realtime).
   useEffect(() => {
     let alive = true
     let timer: ReturnType<typeof setTimeout> | undefined
 
     const loop = async () => {
       if (!alive) return
+      // Don't run until ensureRegistered() has completed at least once.
+      if (!initializedRef.current) {
+        timer = setTimeout(loop, 500)
+        return
+      }
       try {
-        await refresh()
-        // Send a heartbeat on the paired cadence so the mobile app sees status.
-        if (pairedRef.current) {
+        if (!pairedRef.current) {
+          // Still waiting to be claimed — refresh pairing state briskly.
+          await refresh()
+        } else {
+          // Paired — just heartbeat; Realtime handles data freshness.
           const m = await collectKioskMetrics()
           await sendHeartbeat(m)
         }
@@ -112,10 +140,10 @@ export function KioskProvider({ children }: { children: ReactNode }) {
         /* transient; next tick retries */
       }
       if (!alive) return
-      timer = setTimeout(loop, pairedRef.current ? PAIRED_POLL_MS : PAIR_POLL_MS)
+      timer = setTimeout(loop, pairedRef.current ? HEARTBEAT_MS : PAIR_POLL_MS)
     }
 
-    timer = setTimeout(loop, pairedRef.current ? PAIRED_POLL_MS : PAIR_POLL_MS)
+    timer = setTimeout(loop, PAIR_POLL_MS)
     return () => {
       alive = false
       if (timer) clearTimeout(timer)

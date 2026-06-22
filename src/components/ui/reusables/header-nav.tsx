@@ -42,7 +42,7 @@ export function HeaderNav({ title, subtitle }: { title: string; subtitle?: strin
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/60 bg-card">
-      <div className="mx-auto max-w-2xl px-4 pt-3 pb-2">
+      <div className="w-full px-4 pt-3 pb-2">
         {/* Inline title + actions */}
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
