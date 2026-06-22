@@ -29,6 +29,7 @@ import { api, isSupabaseApi, syncGuard, type ApiMember, type CreateMemberInput, 
 import { supabase } from "./supabase"
 import { useAuth } from "./auth"
 import { notify } from "./push"
+import { type KioskDeviceStatus } from "./kiosk-status"
 
 export type TabKey = "calendar" | "chores" | "lists" | "meals" | "photos" | "settings"
 
@@ -147,6 +148,7 @@ type Store = {
   meals: Meal[]
   notifications: Notification[]
   photos: Photo[]
+  kioskDevices: KioskDeviceStatus[]
 
   // members
   getMember: (id: string) => Member
@@ -220,6 +222,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [meals, setMeals] = useState<Meal[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
+  const [kioskDevices, setKioskDevices] = useState<KioskDeviceStatus[]>([])
 
   // Latest-value refs for toggle handlers (avoid stale closures / side effects in updaters).
   const choresRef = useRef(chores)
@@ -247,8 +250,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true
 
-    const loadAll = () =>
-      Promise.all([
+    const loadAll = async () => {
+      const [m, cals, e, c, l, me, n, p] = await Promise.all([
         api.listMembers(),
         api.listCalendars(),
         api.listEvents(),
@@ -257,7 +260,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         api.listMeals(),
         api.listNotifications(),
         api.listPhotos(),
-      ]).then(([m, cals, e, c, l, me, n, p]) => ({
+      ])
+      
+      // Fetch kiosk devices for this household if available
+      let kioskDevs: KioskDeviceStatus[] = []
+      try {
+        const { data } = await supabase.from("kiosk_devices").select("*")
+        if (data) kioskDevs = data as KioskDeviceStatus[]
+      } catch {
+        // kiosk_devices table might not exist yet
+      }
+      
+      return {
         members: m.map(toMember),
         calendars: cals,
         events: e,
@@ -266,7 +280,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         meals: me,
         notifications: n,
         photos: p,
-      }))
+        kioskDevices: kioskDevs,
+      }
+    }
 
     type Loaded = Awaited<ReturnType<typeof loadAll>>
 
@@ -280,6 +296,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setMeals(d.meals)
         setNotifications(d.notifications)
         setPhotos(d.photos)
+        setKioskDevices(d.kioskDevices)
         seenNotifIds.current = new Set(d.notifications.map((n) => n.id))
         return
       }
@@ -291,6 +308,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setMeals((prev) => reconcile(prev, d.meals))
       setNotifications((prev) => reconcile(prev, d.notifications))
       setPhotos((prev) => reconcile(prev, d.photos))
+      setKioskDevices((prev) => reconcile(prev, d.kioskDevices))
 
       // Surface an OS notification for anything new + unread since last sync
       // (the "X joined the family" row is created server-side on invite claim).
@@ -351,6 +369,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       "notification_states",
       "photos",
       "households",
+      "kiosk_devices",
     ]
     let channel: ReturnType<typeof supabase.channel> | undefined
     if (isSupabaseApi) {
@@ -675,6 +694,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       meals,
       notifications,
       photos,
+      kioskDevices,
       getMember,
       currentMember,
       isAdmin,
@@ -726,6 +746,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       meals,
       notifications,
       photos,
+      kioskDevices,
       getMember,
       currentMember,
       isAdmin,

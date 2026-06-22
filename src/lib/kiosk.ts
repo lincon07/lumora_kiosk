@@ -8,8 +8,8 @@
  */
 
 export const kioskConfig = {
-  // Enable kiosk mode (disables sign-out, hides auth screen if credentials stored)
-  isKiosk: process.env.REACT_APP_KIOSK_MODE === "true" || false,
+  // Enable kiosk mode (enables status tracking, disables sign-out, hides auth screen if credentials stored)
+  enabled: process.env.REACT_APP_KIOSK_MODE === "true" || false,
 
   // Pre-stored admin email for auto-login (set via environment variable)
   adminEmail: process.env.REACT_APP_KIOSK_ADMIN_EMAIL || null,

@@ -1055,7 +1055,7 @@ export function SettingsView() {
   {can("hub") ? (
   <ActionRow icon={RefreshCw} label="Reset hub data" onClick={() => setConfirm("reset")} destructive />
   ) : null}
-{!kioskConfig.hideSignOut ? (
+{!kioskConfig.enabled && !kioskConfig.hideSignOut ? (
   <ActionRow icon={LogOut} label="Sign out" onClick={() => setConfirm("signout")} destructive />
   ) : null}
 {can("hub") ? (
