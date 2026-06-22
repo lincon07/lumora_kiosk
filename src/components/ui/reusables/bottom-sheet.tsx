@@ -52,7 +52,7 @@ export function BottomSheet({
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "relative z-10 w-full max-w-lg rounded-t-3xl bg-card p-5 shadow-xl pb-safe",
+          "relative z-10 w-full max-w-lg rounded-t-3xl bg-card p-5 shadow-xl",
           "animate-in slide-in-from-bottom-4 duration-200 sm:rounded-3xl",
         )}
       >

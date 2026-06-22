@@ -36,7 +36,7 @@ export function SideNav({
                 aria-current={isActive ? "page" : undefined}
                 title={label}
                 className={cn(
-                  "flex flex-col items-center gap-2 w-full py-4 px-3 rounded-2xl transition-colors active:scale-95",
+                  "flex flex-col items-center gap-2 w-full py-4 px-3 rounded-2xl transition-colors",
                   isActive ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
                 )}
               >
