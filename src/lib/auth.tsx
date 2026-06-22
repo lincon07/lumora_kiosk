@@ -66,17 +66,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applySession])
 
   useEffect(() => {
+    console.log("[v0] Auth Init:", {
+      kioskMode: kioskConfig.enabled,
+      autoSignIn: kioskConfig.autoSignIn,
+      hasEmail: !!kioskConfig.adminEmail,
+      hasPassword: !!kioskConfig.adminPassword,
+    })
+    
     void refresh().then(async () => {
       // If in kiosk mode and auto-signin is enabled, attempt to sign in
       if (kioskConfig.autoSignIn && status === "loading") {
+        console.log("[v0] Attempting auto sign-in...")
         try {
           const res = await api.signIn({
             email: kioskConfig.adminEmail!,
             password: kioskConfig.adminPassword!,
           })
+          console.log("[v0] Auto sign-in successful")
           applySession(res.user, res.household)
         } catch (err) {
-          console.warn("[Kiosk] Auto sign-in failed:", err)
+          console.error("[Kiosk] Auto sign-in failed:", err)
           // Fall back to normal auth flow
         }
       }
