@@ -11,6 +11,7 @@ import {
   type User,
 } from "./api"
 import { kioskConfig } from "./kiosk"
+import { startKioskStatusTracking, stopKioskStatusTracking } from "./kiosk-status"
 
 type AuthStatus = "loading" | "authed" | "guest"
 
@@ -39,6 +40,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u)
     setHousehold(h)
     setStatus(u ? "authed" : "guest")
+    
+    // Start kiosk status tracking if we have a household and kiosk is enabled
+    if (u && h && kioskConfig.enabled) {
+      startKioskStatusTracking(h.id, "Kiosk Display").catch((err) =>
+        console.error("[Kiosk] Failed to start status tracking:", err)
+      )
+    } else {
+      stopKioskStatusTracking()
+    }
   }, [])
 
   const refresh = useCallback(async () => {
