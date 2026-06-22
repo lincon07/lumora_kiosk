@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import QRCode from "qrcode"
-import { Sparkles, Loader2, Wifi, ScanLine } from "lucide-react"
+import { Sparkles, Loader2, Wifi, ScanLine, RefreshCw } from "lucide-react"
 import { useKiosk } from "@/lib/kiosk-provider"
 import { buildPairingPayload } from "@/lib/kiosk-session"
 
@@ -18,8 +18,9 @@ const todayLabel = new Date().toLocaleDateString(undefined, {
  * types the code), and the device is claimed into their household.
  */
 export function PairingScreen() {
-  const { state, loading } = useKiosk()
+  const { state, loading, refresh } = useKiosk()
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [qrError, setQrError] = useState(false)
   const [clock, setClock] = useState(() => new Date())
 
   // Live clock for ambient wall-display feel.
@@ -32,8 +33,10 @@ export function PairingScreen() {
   useEffect(() => {
     if (!state.pairingCode) {
       setQrDataUrl(null)
+      setQrError(false)
       return
     }
+    setQrError(false)
     const payload = buildPairingPayload(state.pairingCode)
     QRCode.toDataURL(payload, {
       width: 520,
@@ -41,8 +44,14 @@ export function PairingScreen() {
       color: { dark: "#1f2421", light: "#ffffff" },
       errorCorrectionLevel: "M",
     })
-      .then(setQrDataUrl)
-      .catch((err) => console.error("[v0] QR render failed:", err))
+      .then((url) => {
+        setQrDataUrl(url)
+        setQrError(false)
+      })
+      .catch((err) => {
+        console.error("[kiosk] QR render failed:", err)
+        setQrError(true)
+      })
   }, [state.pairingCode])
 
   const time = clock.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
@@ -98,13 +107,32 @@ export function PairingScreen() {
         {/* Right: QR card */}
         <div className="flex flex-col items-center">
           <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
-            {loading || !qrDataUrl ? (
-              <div className="flex size-[340px] items-center justify-center lg:size-[420px]">
+            {qrError ? (
+              // QR generation failed — show retry
+              <div className="flex size-[340px] flex-col items-center justify-center gap-4 lg:size-[420px]">
+                <p className="text-sm font-medium text-muted-foreground text-center text-pretty max-w-[200px]">
+                  Could not generate the QR code.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void refresh()}
+                  className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+                >
+                  <RefreshCw className="size-4" />
+                  Retry
+                </button>
+              </div>
+            ) : loading || !qrDataUrl ? (
+              // Still waiting for a pairing code from the server
+              <div className="flex size-[340px] flex-col items-center justify-center gap-3 lg:size-[420px]">
                 <Loader2 className="size-10 animate-spin text-muted-foreground" />
+                {!loading && !state.pairingCode ? (
+                  <p className="text-xs text-muted-foreground">Waiting for pairing code…</p>
+                ) : null}
               </div>
             ) : (
               <img
-                src={qrDataUrl || "/placeholder.svg"}
+                src={qrDataUrl}
                 alt="Scan this QR code with the Lumora app to pair this hub"
                 className="size-[340px] rounded-xl lg:size-[420px]"
               />

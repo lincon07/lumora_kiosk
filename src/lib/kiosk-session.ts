@@ -94,8 +94,14 @@ export async function ensureRegistered(deviceName?: string): Promise<string | nu
   const name = deviceName || getDeviceName()
   const { data, error } = await supabase.rpc("kiosk_register", { p_device_name: name })
   if (error) {
-    console.error("[v0] kiosk_register failed:", error.message)
-    return null
+    console.error("[kiosk] kiosk_register failed:", error.message, error.code)
+    // Surface a user-friendly message for missing RPC (PGRST202 = function not found)
+    if (error.code === "PGRST202" || error.message?.includes("Could not find the function")) {
+      throw new Error(
+        "The kiosk_register function is not deployed yet. Please run the Supabase migration.",
+      )
+    }
+    throw new Error(`Registration failed: ${error.message}`)
   }
   const token = (data as { device_token?: string })?.device_token ?? null
   if (token) {
@@ -112,7 +118,13 @@ export async function fetchKioskState(): Promise<KioskState> {
 
   const { data, error } = await supabase.rpc("kiosk_get_state", { p_device_token: token })
   if (error) {
-    console.error("[v0] kiosk_get_state failed:", error.message)
+    console.error("[kiosk] kiosk_get_state failed:", error.message, error.code)
+    if (error.code === "PGRST202" || error.message?.includes("Could not find the function")) {
+      throw new Error(
+        "The kiosk_get_state function is not deployed yet. Please run the Supabase migration.",
+      )
+    }
+    // For transient errors, return last-known unpaired state so polling can retry
     return UNPAIRED
   }
 

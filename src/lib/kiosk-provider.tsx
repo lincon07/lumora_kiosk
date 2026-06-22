@@ -24,6 +24,8 @@ type KioskContextValue = {
   state: KioskState
   /** True until the first state resolves on launch. */
   loading: boolean
+  /** Set when the initial registration/fetch fails (e.g. RPC not deployed). */
+  initError: string | null
   /** Re-poll the claim state immediately. */
   refresh: () => Promise<void>
   /** Detach this kiosk from its household; a fresh pairing code is issued. */
@@ -49,13 +51,18 @@ export function KioskProvider({ children }: { children: ReactNode }) {
     householdName: null,
   })
   const [loading, setLoading] = useState(true)
+  const [initError, setInitError] = useState<string | null>(null)
   const pairedRef = useRef(false)
 
   const refresh = useCallback(async () => {
-    const next = await fetchKioskState()
-    pairedRef.current = next.paired
-    setState(next)
-    return
+    try {
+      const next = await fetchKioskState()
+      pairedRef.current = next.paired
+      setState(next)
+    } catch (err) {
+      console.error("[kiosk] fetchKioskState error:", err)
+      // Don't throw — keep last known state so polling can retry
+    }
   }, [])
 
   const unpair = useCallback(async () => {
@@ -67,10 +74,20 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true
     ;(async () => {
-      await ensureRegistered()
-      if (!alive) return
-      await refresh()
-      if (alive) setLoading(false)
+      try {
+        await ensureRegistered()
+        if (!alive) return
+        await refresh()
+      } catch (err) {
+        console.error("[kiosk] init error:", err)
+        if (alive) {
+          setInitError(
+            err instanceof Error ? err.message : "Failed to connect to server.",
+          )
+        }
+      } finally {
+        if (alive) setLoading(false)
+      }
     })()
     return () => {
       alive = false
@@ -106,8 +123,8 @@ export function KioskProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   const value = useMemo<KioskContextValue>(
-    () => ({ state, loading, refresh, unpair }),
-    [state, loading, refresh, unpair],
+    () => ({ state, loading, initError, refresh, unpair }),
+    [state, loading, initError, refresh, unpair],
   )
 
   return <KioskContext.Provider value={value}>{children}</KioskContext.Provider>
