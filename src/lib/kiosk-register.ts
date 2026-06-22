@@ -43,11 +43,11 @@ export async function registerOrClaimKiosk(householdId: string, deviceName: stri
           wifi_signal: 0,
           ping_latency_ms: 0,
           is_online: true,
-          device_info: {
+          device_info: JSON.stringify({
             platform: typeof navigator !== "undefined" ? navigator.platform : "Unknown",
-            userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "Unknown",
+            userAgent: typeof navigator !== "undefined" ? navigator.userAgent.substring(0, 100) : "Unknown",
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          },
+          }),
         })
         .select("id, household_id, device_name, created_at")
         .single()
