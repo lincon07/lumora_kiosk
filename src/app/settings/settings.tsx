@@ -62,6 +62,7 @@ import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth"
 import { kioskConfig } from "@/lib/kiosk"
 import { type Invite } from "@/lib/api"
+import { KioskStatusWidget } from "@/components/ui/reusables/kiosk-status-widget"
 import {
   getPushPermission,
   requestPushPermission,
@@ -975,6 +976,16 @@ export function SettingsView() {
 
   return (
     <div className="space-y-5 px-4 py-4">
+      {/* Kiosk status (if any kiosk connected) */}
+      {household && (
+        <>
+          <div>
+            <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Kiosk Status</h2>
+            <KioskStatusWidget />
+          </div>
+        </>
+      )}
+      
       {/* Device card */}
       <div className="rounded-3xl bg-card p-4 shadow-sm">
         <div className="flex items-center gap-3">

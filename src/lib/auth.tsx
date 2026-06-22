@@ -43,10 +43,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     // Start kiosk status tracking if we have a household and kiosk is enabled
     if (u && h && kioskConfig.enabled) {
+      console.log("[v0] Starting kiosk status tracking for household:", h.id)
       startKioskStatusTracking(h.id, "Kiosk Display").catch((err) =>
-        console.error("[Kiosk] Failed to start status tracking:", err)
+        console.error("[v0] Failed to start kiosk status tracking:", err)
       )
     } else {
+      if (kioskConfig.enabled) {
+        console.log("[v0] Kiosk tracking not started - missing user/household")
+      }
       stopKioskStatusTracking()
     }
   }, [])
