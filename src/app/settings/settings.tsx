@@ -2,25 +2,17 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react"
 import {
-  Tablet,
   ChevronRight,
   Bell,
   RefreshCw,
   Moon,
   Sun,
-  Battery,
-  Wifi,
   Monitor,
   Send,
   ShieldCheck,
-  User,
-  CreditCard,
-  HelpCircle,
   LogOut,
   Trash2,
   Lock,
-  Volume2,
-  CalendarClock,
   Power,
   RotateCcw,
   ScrollText,
@@ -40,7 +32,6 @@ import {
   QrCode as QrCodeIcon,
   MonitorSmartphone,
   Link2Off,
-  Home,
   Globe,
   Clock,
   type LucideIcon,
@@ -1421,7 +1412,7 @@ function LanguageRegionSection() {
 
 export function SettingsView() {
   const { clearNotifications, can } = useStore()
-  const { user, household, signOut } = useAuth()
+  const { signOut } = useAuth()
   const { state: kioskState, unpair } = useKiosk()
   const [confirm, setConfirm] = useState<null | "signout" | "clear" | "reset" | "delete" | "unpair">(null)
   const [factoryResetOpen, setFactoryResetOpen] = useState(false)
@@ -1431,9 +1422,7 @@ export function SettingsView() {
       title: "Sign out?",
       message: "You will need to sign back in to access your family hub.",
       confirmLabel: "Sign out",
-      onConfirm: () => {
-        void signOut()
-      },
+      onConfirm: () => { void signOut() },
     },
     clear: {
       title: "Clear notifications?",
@@ -1451,17 +1440,13 @@ export function SettingsView() {
       title: "Delete account?",
       message: "This permanently deletes your account and all family data. This cannot be undone.",
       confirmLabel: "Delete account",
-      onConfirm: () => {
-        void signOut()
-      },
+      onConfirm: () => { void signOut() },
     },
     unpair: {
       title: "Disconnect hub?",
       message: `Removes this display from ${kioskState.householdName ?? "your household"}. A new pairing code will be issued.`,
       confirmLabel: "Disconnect",
-      onConfirm: () => {
-        void unpair()
-      },
+      onConfirm: () => { void unpair() },
     },
   } as const
 
@@ -1469,84 +1454,32 @@ export function SettingsView() {
 
   return (
     <div className="space-y-5 px-4 py-4">
-      {/* This Device */}
+
+      {/* Device identity — read-only status card */}
       <section>
         <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">This Device</h2>
-        <div className="space-y-3">
-          {/* Device identity card */}
-          <div className="rounded-3xl bg-card p-4 shadow-sm">
-            <div className="flex items-center gap-3">
-              <span className="flex size-12 items-center justify-center rounded-2xl bg-foreground text-background">
-                <MonitorSmartphone className="size-6" />
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold leading-tight truncate">{kioskState.deviceName}</p>
-                <p className="text-sm text-muted-foreground">
-                  {kioskState.paired ? kioskState.householdName ?? "Connected household" : "Not connected to a household"}
-                </p>
-              </div>
-              <span className={cn(
-                "shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold",
-                kioskState.paired ? "bg-member-green/15 text-member-green" : "bg-secondary text-muted-foreground"
-              )}>
-                {kioskState.paired ? "Paired" : "Unpaired"}
-              </span>
+        <div className="rounded-3xl bg-card p-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-foreground text-background">
+              <MonitorSmartphone className="size-6" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold leading-tight truncate">{kioskState.deviceName}</p>
+              <p className="text-sm text-muted-foreground">
+                {kioskState.paired
+                  ? kioskState.householdName ?? "Connected household"
+                  : "Not connected to a household"}
+              </p>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-2xl bg-secondary py-2">
-                <Wifi className="mx-auto size-4 text-member-blue" />
-                <p className="mt-1 text-xs font-medium">Strong</p>
-              </div>
-              <div className="rounded-2xl bg-secondary py-2">
-                <Battery className="mx-auto size-4 text-member-green" />
-                <p className="mt-1 text-xs font-medium">92%</p>
-              </div>
-              <div className="rounded-2xl bg-secondary py-2">
-                <RefreshCw className="mx-auto size-4 text-primary" />
-                <p className="mt-1 text-xs font-medium">2m ago</p>
-              </div>
-            </div>
+            <span className={cn(
+              "shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold",
+              kioskState.paired
+                ? "bg-member-green/15 text-member-green"
+                : "bg-secondary text-muted-foreground",
+            )}>
+              {kioskState.paired ? "Paired" : "Unpaired"}
+            </span>
           </div>
-
-          {/* Connected household card */}
-          {kioskState.paired && (
-            <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
-              <div className="flex items-center gap-3 px-4 py-3">
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
-                  <Home className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">Connected household</span>
-                  <span className="block text-xs text-muted-foreground">{kioskState.householdName ?? "—"}</span>
-                </span>
-              </div>
-              <ActionRow
-                icon={Link2Off}
-                label="Disconnect hub"
-                description="Unpair and issue a new pairing code"
-                onClick={() => setConfirm("unpair")}
-                destructive
-              />
-            </div>
-          )}
-
-          {/* Kiosk status widget (mobile app view of the connected kiosk) */}
-          {household && <KioskStatusWidget />}
-        </div>
-      </section>
-
-      {/* Account */}
-      <section>
-        <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Account</h2>
-        <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
-          <ActionRow
-            icon={User}
-            label="Profile"
-            description={user ? `${user.name} · ${user.email}` : "Not signed in"}
-          />
-          <ActionRow icon={CreditCard} label="Subscription" description="Lumora Plus · Renews Jul 1" />
-          <ActionRow icon={Lock} label="Privacy & Security" />
-          <ActionRow icon={HelpCircle} label="Help & Support" />
         </div>
       </section>
 
@@ -1556,49 +1489,56 @@ export function SettingsView() {
         <AppearanceControl />
       </section>
 
-      {/* Language & Region */}
+      {/* Language & Region — OS level */}
       <LanguageRegionSection />
-
-      {/* Push notifications */}
-      <PushNotificationsSection />
 
       {/* Hub actions */}
       <HubActionsSection />
 
-      {/* Family members */}
-      <FamilyMembersSection />
-
-      {/* Preferences */}
-      <section>
-        <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Preferences</h2>
-        <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
-          <Toggle label="In-app alerts" description="Show banners inside the hub" icon={Bell} defaultOn />
-          <Toggle label="Sound effects" description="Play a chime on updates" icon={Volume2} />
-          <Toggle label="Auto-sync calendar" description="Keep events up to date" icon={RefreshCw} defaultOn />
-          <Toggle label="Event reminders" description="Notify before events start" icon={CalendarClock} defaultOn />
-          <Toggle label="Screen saver dimming" description="Dim the display at night" icon={Moon} />
-        </div>
-      </section>
-
-      {/* Danger zone */}
+      {/* Danger Zone — only destructive, irreversible actions */}
       <section>
         <h2 className="px-1 pb-2 text-sm font-semibold text-destructive">Danger Zone</h2>
         <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
-          <ActionRow icon={Bell} label="Clear notifications" onClick={() => setConfirm("clear")} />
+          {kioskState.paired ? (
+            <ActionRow
+              icon={Link2Off}
+              label="Disconnect hub"
+              description={`Unpair from ${kioskState.householdName ?? "household"} and reissue a pairing code`}
+              onClick={() => setConfirm("unpair")}
+              destructive
+            />
+          ) : null}
           {can("hub") ? (
-            <ActionRow icon={RefreshCw} label="Reset hub data" onClick={() => setConfirm("reset")} destructive />
+            <ActionRow
+              icon={RefreshCw}
+              label="Reset hub data"
+              description="Permanently removes all events, chores, lists and meals"
+              onClick={() => setConfirm("reset")}
+              destructive
+            />
           ) : null}
           {!kioskConfig.enabled && !kioskConfig.hideSignOut ? (
-            <ActionRow icon={LogOut} label="Sign out" onClick={() => setConfirm("signout")} destructive />
+            <ActionRow
+              icon={LogOut}
+              label="Sign out"
+              onClick={() => setConfirm("signout")}
+              destructive
+            />
           ) : null}
           {can("hub") ? (
-            <ActionRow icon={Trash2} label="Delete account" onClick={() => setConfirm("delete")} destructive />
+            <ActionRow
+              icon={Trash2}
+              label="Delete account"
+              description="Permanently deletes your account and all family data"
+              onClick={() => setConfirm("delete")}
+              destructive
+            />
           ) : null}
           {can("hub") ? (
             <ActionRow
               icon={RotateCcw}
               label="Factory Reset"
-              description="Erase everything and return to setup"
+              description="Erase everything and return to the setup wizard"
               onClick={() => setFactoryResetOpen(true)}
               destructive
             />
@@ -1606,7 +1546,7 @@ export function SettingsView() {
         </div>
       </section>
 
-      <p className="pb-2 text-center text-xs text-muted-foreground">SkyNest Hub · v1.0.0</p>
+      <p className="pb-2 text-center text-xs text-muted-foreground">Lumora Hub · v1.0.0</p>
 
       <FactoryResetDialog open={factoryResetOpen} onClose={() => setFactoryResetOpen(false)} />
 

@@ -77,7 +77,26 @@ let _devTimezone: string = (() => {
  */
 function bcp47ToPosix(code: string): string {
   // "en-US" → "en_US.UTF-8"
-  return code.replace("-", "_") + ".UTF-8"
+  // Use replace with regex to handle codes that already use underscore.
+  return code.replace(/-/, "_") + ".UTF-8"
+}
+
+/**
+ * Normalise a raw locale string (POSIX or BCP-47) into a BCP-47 code so it
+ * can be matched against SUPPORTED_LANGUAGES in the UI.
+ *
+ * Examples:
+ *   "en_US.UTF-8" → "en-US"
+ *   "fr_FR.UTF-8" → "fr-FR"
+ *   "en-US"       → "en-US"  (already normalised)
+ *   "C"           → "en-US"  (POSIX C/POSIX → default to English)
+ */
+export function normaliseToBcp47(raw: string): string {
+  if (!raw || raw === "C" || raw === "POSIX") return "en-US"
+  // Strip encoding suffix (e.g. ".UTF-8", ".utf8")
+  const withoutEncoding = raw.split(".")[0]
+  // Replace underscore separator with hyphen: "en_US" → "en-US"
+  return withoutEncoding.replace(/_/, "-")
 }
 
 // ─── Language ─────────────────────────────────────────────────────────────────
@@ -90,7 +109,13 @@ function bcp47ToPosix(code: string): string {
 export async function getLanguage(): Promise<LocaleResult> {
   if (isTauri()) {
     try {
-      return await invoke<LocaleResult>("locale_get")
+      const raw = await invoke<LocaleResult>("locale_get")
+      // Rust returns the raw POSIX locale (e.g. "en_US.UTF-8").
+      // Normalise it to BCP-47 (e.g. "en-US") so the UI can match it.
+      return {
+        lang: normaliseToBcp47(raw.lang),
+        raw: raw.raw,
+      }
     } catch (err) {
       console.error("[locale-service] getLanguage failed:", err)
       return { lang: "en-US", raw: "en_US.UTF-8" }

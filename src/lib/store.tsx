@@ -384,6 +384,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     // of the SECURITY DEFINER kiosk_fetch_all snapshot.
     const tables = [
       "members",
+      "invites",
       "calendars",
       "events",
       "chores",
