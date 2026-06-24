@@ -1,31 +1,37 @@
 "use client"
 
-import { Loader2, WifiOff } from "lucide-react"
+import { WifiOff } from "lucide-react"
 import { KioskProvider, useKiosk } from "@/lib/kiosk-provider"
 import { StoreProvider } from "@/lib/store"
 import { PairingScreen } from "./pairing-screen"
 import { KioskAppShell } from "./kiosk-app-shell"
+import { SplashScreen } from "./splash-screen"
+import { RegisteringScreen } from "./registering-screen"
+import { SetupWizard } from "./setup/setup-wizard"
 
 /**
  * Root for the kiosk experience (a wall-mounted family display).
  *
- * Unlike the mobile app, the kiosk has no user login. It identifies itself with
- * a device token and is "claimed" to a household by a family member scanning a
- * QR code in the phone app. Until claimed it shows the PairingScreen; once
- * claimed it renders the read-only family dashboard.
+ * Drives the full appliance startup flow as a state machine so the user never
+ * sees Linux/Ubuntu, desktop, or app restarts — just smooth Lumora screens:
+ *
+ *   splash → registering (MDM enroll) → setup wizard → pairing → home dashboard
  */
 function KioskGate() {
-  const { state, loading, initError, refresh } = useKiosk()
+  const {
+    phase,
+    loading,
+    initError,
+    registrationError,
+    savingSetup,
+    setupError,
+    deviceState,
+    retryRegistration,
+    completeSetup,
+    refresh,
+  } = useKiosk()
 
-  if (loading) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-background">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  // Supabase RPC unavailable or network failure on init
+  // Hard failure talking to the backend (e.g. RPC not deployed).
   if (initError) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background px-8 text-center">
@@ -47,16 +53,50 @@ function KioskGate() {
     )
   }
 
-  if (!state.paired) {
+  // Booting: loading local device state.
+  if (loading && phase === "splash") {
+    return <SplashScreen message="Starting up" />
+  }
+
+  // Step 2 — registering with Lumora Cloud (with retry on failure).
+  if (phase === "registering") {
+    return (
+      <RegisteringScreen error={registrationError} onRetry={() => void retryRegistration()} />
+    )
+  }
+
+  // Step 3 — setup wizard (language, WiFi, timezone, name).
+  if (phase === "setup") {
+    return (
+      <SetupWizard
+        defaults={{
+          language: deviceState.language ?? undefined,
+          timezone: deviceState.timezone ?? undefined,
+          deviceName: deviceState.deviceName ?? undefined,
+        }}
+        saving={savingSetup}
+        saveError={setupError}
+        onComplete={(values) => void completeSetup(values)}
+      />
+    )
+  }
+
+  // Step 4 — waiting to be claimed by a household.
+  if (phase === "pairing") {
     return <PairingScreen />
   }
 
-  // Paired: load the household data (read-only kiosk source) and show the app.
-  return (
-    <StoreProvider kioskMode>
-      <KioskAppShell />
-    </StoreProvider>
-  )
+  // Step 5 — registered, set up, and claimed: load the Home dashboard.
+  if (phase === "ready") {
+    return (
+      <StoreProvider kioskMode>
+        <KioskAppShell />
+      </StoreProvider>
+    )
+  }
+
+  // Fallback while the phase settles.
+  return <SplashScreen message="Starting up" />
 }
 
 export function KioskRoot() {
