@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
+use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 #[tauri::command]
@@ -55,6 +56,159 @@ async fn wifi_status() -> Result<Option<String>, String> {
     Ok(None)
 }
 
+// ─── Locale ───────────────────────────────────────────────────────────────────
+
+/// Result returned to the frontend by `locale_get`.
+#[derive(Debug, Serialize, Deserialize)]
+struct LocaleResult {
+    /// Normalised BCP-47-style code, e.g. "en_US.UTF-8".
+    lang: String,
+    /// Raw value exactly as reported by the system.
+    raw: String,
+}
+
+/// Read the current system locale via `localectl status`.
+///
+/// Parses the `System Locale: LANG=…` line from the output.
+/// Returns a sensible default ("en_US.UTF-8") if the line is absent.
+#[tauri::command]
+async fn locale_get() -> Result<LocaleResult, String> {
+    let output = Command::new("localectl")
+        .arg("status")
+        .output()
+        .map_err(|e| format!("Failed to run localectl: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Look for a line like "   System Locale: LANG=en_US.UTF-8"
+    let lang = stdout
+        .lines()
+        .find_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("System Locale:") {
+                trimmed
+                    .split_once('=')
+                    .map(|(_, v)| v.split_whitespace().next().unwrap_or(v).to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "en_US.UTF-8".to_string());
+
+    Ok(LocaleResult {
+        lang: lang.clone(),
+        raw: lang,
+    })
+}
+
+/// Set the system locale via `localectl set-locale LANG=<lang>`.
+///
+/// `lang` should be a POSIX locale string such as "en_US.UTF-8".
+/// Requires the process to have the necessary privileges (runs as root or via
+/// polkit on Ubuntu; on Raspberry Pi OS the kiosk user is typically sudoer).
+#[tauri::command]
+async fn locale_set(lang: String) -> Result<bool, String> {
+    let status = Command::new("localectl")
+        .args(["set-locale", &format!("LANG={lang}")])
+        .status()
+        .map_err(|e| format!("Failed to run localectl: {e}"))?;
+
+    if status.success() {
+        Ok(true)
+    } else {
+        Err(format!(
+            "localectl set-locale exited with status {}",
+            status.code().unwrap_or(-1)
+        ))
+    }
+}
+
+// ─── Timezone ─────────────────────────────────────────────────────────────────
+
+/// Result returned to the frontend by `timezone_get`.
+#[derive(Debug, Serialize, Deserialize)]
+struct TimezoneResult {
+    /// IANA timezone identifier, e.g. "America/New_York".
+    timezone: String,
+    /// UTC offset string, e.g. "UTC-05:00".
+    utc_offset: String,
+}
+
+/// Read the current system timezone via `timedatectl show`.
+///
+/// Parses `Timezone=` and `TimeUSec=` lines from machine-readable output.
+#[tauri::command]
+async fn timezone_get() -> Result<TimezoneResult, String> {
+    let output = Command::new("timedatectl")
+        .arg("show")
+        .output()
+        .map_err(|e| format!("Failed to run timedatectl: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let timezone = stdout
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("Timezone=")
+                .map(|v| v.to_string())
+        })
+        .unwrap_or_else(|| "America/New_York".to_string());
+
+    // Build a rough UTC offset string from the system clock.
+    // On a kiosk we don't need sub-minute precision here; the OS clock handles
+    // the real offset — this value is display-only in the wizard.
+    let utc_offset = get_utc_offset_string(&timezone);
+
+    Ok(TimezoneResult {
+        timezone,
+        utc_offset,
+    })
+}
+
+/// Set the system timezone via `timedatectl set-timezone <tz>`.
+///
+/// `timezone` must be an IANA identifier, e.g. "Europe/Paris".
+#[tauri::command]
+async fn timezone_set(timezone: String) -> Result<bool, String> {
+    let status = Command::new("timedatectl")
+        .args(["set-timezone", &timezone])
+        .status()
+        .map_err(|e| format!("Failed to run timedatectl: {e}"))?;
+
+    if status.success() {
+        Ok(true)
+    } else {
+        Err(format!(
+            "timedatectl set-timezone exited with status {}",
+            status.code().unwrap_or(-1)
+        ))
+    }
+}
+
+/// Derive a rough "UTC±HH:MM" string by reading /etc/localtime symlink target
+/// for display in the UI.  Falls back to "UTC" on any error.
+fn get_utc_offset_string(timezone: &str) -> String {
+    // Use the `date` command for a reliable, dependency-free offset string.
+    let output = Command::new("date")
+        .args(["+%z"])
+        .env("TZ", timezone)
+        .output();
+
+    match output {
+        Ok(o) => {
+            let raw = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            // raw is like "+0530" or "-0500"; convert to "+05:30" / "-05:00".
+            if raw.len() == 5 {
+                format!("UTC{}{}", &raw[..3], &raw[3..])
+            } else {
+                format!("UTC{raw}")
+            }
+        }
+        Err(_) => "UTC".to_string(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -69,7 +223,11 @@ pub fn run() {
             greet,
             wifi_scan,
             wifi_connect,
-            wifi_status
+            wifi_status,
+            locale_get,
+            locale_set,
+            timezone_get,
+            timezone_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

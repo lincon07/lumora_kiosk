@@ -1,0 +1,187 @@
+"use client"
+
+/**
+ * Locale service abstraction — language and timezone.
+ *
+ * Mirrors the wifi-service pattern exactly:
+ *
+ *   React UI
+ *     ↓
+ *   invoke() (this file)
+ *     ↓
+ *   Rust Commands  (src-tauri/src/lib.rs)
+ *     ↓
+ *   localectl / timedatectl  (Ubuntu / Raspberry Pi OS)
+ *
+ * In the browser / dev preview (no Tauri runtime), operations succeed with a
+ * short simulated delay and the chosen values are stored in module-level vars
+ * so the wizard flow is fully exercisable without a real device.
+ *
+ * When the Tauri backend is present the actual system locale and timezone are
+ * read and written via the `locale_*` / `timezone_*` commands — the UI never
+ * opens system settings dialogs.
+ */
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type LocaleResult = {
+  /** BCP-47 locale code stored in LANG, e.g. "en_US.UTF-8" or "fr_FR.UTF-8". */
+  lang: string
+  /** The raw locale code as returned by the system, may differ from the
+   *  wizard's BCP-47 code (e.g. "en_US.UTF-8" vs "en-US"). */
+  raw: string
+}
+
+export type TimezoneResult = {
+  /** IANA timezone identifier, e.g. "America/New_York". */
+  timezone: string
+  /** Human-readable UTC offset string returned by the system, e.g. "UTC-05:00". */
+  utcOffset: string
+}
+
+// ─── Tauri detection ──────────────────────────────────────────────────────────
+
+function isTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const mod = await import("@tauri-apps/api/core")
+  return mod.invoke<T>(cmd, args)
+}
+
+// ─── Dev-preview state ────────────────────────────────────────────────────────
+
+/** Simulated state used only when Tauri is not available (browser / Vite dev). */
+let _devLang: string = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale ?? "en-US"
+  } catch {
+    return "en-US"
+  }
+})()
+
+let _devTimezone: string = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "America/New_York"
+  } catch {
+    return "America/New_York"
+  }
+})()
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Convert a BCP-47 code (e.g. "en-US") to the POSIX locale format that
+ * `localectl` expects (e.g. "en_US.UTF-8").
+ */
+function bcp47ToPosix(code: string): string {
+  // "en-US" → "en_US.UTF-8"
+  return code.replace("-", "_") + ".UTF-8"
+}
+
+// ─── Language ─────────────────────────────────────────────────────────────────
+
+/**
+ * Read the current system language.
+ * On Tauri: calls `locale_get` → `localectl status`.
+ * In dev: returns the browser's detected locale.
+ */
+export async function getLanguage(): Promise<LocaleResult> {
+  if (isTauri()) {
+    try {
+      return await invoke<LocaleResult>("locale_get")
+    } catch (err) {
+      console.error("[locale-service] getLanguage failed:", err)
+      return { lang: "en-US", raw: "en_US.UTF-8" }
+    }
+  }
+  await new Promise((r) => setTimeout(r, 300))
+  return { lang: _devLang, raw: bcp47ToPosix(_devLang) }
+}
+
+/**
+ * Apply a new system language.
+ *
+ * On Tauri: calls `locale_set` → `localectl set-locale LANG=<posix>`.
+ * In dev: stores in module state and resolves.
+ *
+ * @param code - BCP-47 code, e.g. "en-US", "fr-FR", "ja-JP".
+ * @returns true on success.
+ */
+export async function setLanguage(code: string): Promise<boolean> {
+  if (isTauri()) {
+    try {
+      const posix = bcp47ToPosix(code)
+      return await invoke<boolean>("locale_set", { lang: posix })
+    } catch (err) {
+      console.error("[locale-service] setLanguage failed:", err)
+      return false
+    }
+  }
+  await new Promise((r) => setTimeout(r, 600))
+  _devLang = code
+  return true
+}
+
+// ─── Timezone ─────────────────────────────────────────────────────────────────
+
+/**
+ * Read the current system timezone.
+ * On Tauri: calls `timezone_get` → `timedatectl show`.
+ * In dev: returns the browser's detected timezone.
+ */
+export async function getTimezone(): Promise<TimezoneResult> {
+  if (isTauri()) {
+    try {
+      return await invoke<TimezoneResult>("timezone_get")
+    } catch (err) {
+      console.error("[locale-service] getTimezone failed:", err)
+      return { timezone: "America/New_York", utcOffset: "UTC-05:00" }
+    }
+  }
+  await new Promise((r) => setTimeout(r, 300))
+  return { timezone: _devTimezone, utcOffset: "UTC" }
+}
+
+/**
+ * Apply a new system timezone.
+ *
+ * On Tauri: calls `timezone_set` → `timedatectl set-timezone <tz>`.
+ * In dev: stores in module state and resolves.
+ *
+ * @param timezone - IANA identifier, e.g. "America/New_York", "Europe/Paris".
+ * @returns true on success.
+ */
+export async function setTimezone(timezone: string): Promise<boolean> {
+  if (isTauri()) {
+    try {
+      return await invoke<boolean>("timezone_set", { timezone })
+    } catch (err) {
+      console.error("[locale-service] setTimezone failed:", err)
+      return false
+    }
+  }
+  await new Promise((r) => setTimeout(r, 600))
+  _devTimezone = timezone
+  return true
+}
+
+// ─── Combined apply (used by setup wizard finish) ─────────────────────────────
+
+/**
+ * Apply both language and timezone in parallel.  Call this on wizard
+ * completion so the OS is configured before the kiosk state is persisted.
+ *
+ * @returns An object indicating whether each operation succeeded.
+ */
+export async function applyLocaleSettings(params: {
+  language: string
+  timezone: string
+}): Promise<{ languageOk: boolean; timezoneOk: boolean }> {
+  const [languageOk, timezoneOk] = await Promise.all([
+    setLanguage(params.language),
+    setTimezone(params.timezone),
+  ])
+  return { languageOk, timezoneOk }
+}
