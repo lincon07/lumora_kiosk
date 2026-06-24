@@ -38,6 +38,9 @@ import {
   Check,
   Loader2,
   QrCode as QrCodeIcon,
+  MonitorSmartphone,
+  Link2Off,
+  Home,
   type LucideIcon,
 } from "lucide-react"
 import {
@@ -61,6 +64,7 @@ import { QrCode } from "@/components/ui/reusables/qr-code"
 import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth"
 import { kioskConfig } from "@/lib/kiosk"
+import { useKiosk } from "@/lib/kiosk-provider"
 import { type Invite } from "@/lib/api"
 import { KioskStatusWidget } from "@/components/ui/reusables/kiosk-status-widget"
 import {
@@ -1083,7 +1087,8 @@ function FactoryResetDialog({ open, onClose }: { open: boolean; onClose: () => v
 export function SettingsView() {
   const { clearNotifications, can } = useStore()
   const { user, household, signOut } = useAuth()
-  const [confirm, setConfirm] = useState<null | "signout" | "clear" | "reset" | "delete">(null)
+  const { state: kioskState, unpair } = useKiosk()
+  const [confirm, setConfirm] = useState<null | "signout" | "clear" | "reset" | "delete" | "unpair">(null)
   const [factoryResetOpen, setFactoryResetOpen] = useState(false)
 
   const confirmMeta = {
@@ -1115,51 +1120,85 @@ export function SettingsView() {
         void signOut()
       },
     },
+    unpair: {
+      title: "Disconnect hub?",
+      message: `Removes this display from ${kioskState.householdName ?? "your household"}. A new pairing code will be issued.`,
+      confirmLabel: "Disconnect",
+      onConfirm: () => {
+        void unpair()
+      },
+    },
   } as const
 
   const active = confirm ? confirmMeta[confirm] : null
 
   return (
     <div className="space-y-5 px-4 py-4">
-      {/* Kiosk status (if any kiosk connected) */}
-      {household && (
-        <>
-          <div>
-            <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Kiosk Status</h2>
-            <KioskStatusWidget />
+      {/* This Device */}
+      <section>
+        <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">This Device</h2>
+        <div className="space-y-3">
+          {/* Device identity card */}
+          <div className="rounded-3xl bg-card p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <span className="flex size-12 items-center justify-center rounded-2xl bg-foreground text-background">
+                <MonitorSmartphone className="size-6" />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold leading-tight truncate">{kioskState.deviceName}</p>
+                <p className="text-sm text-muted-foreground">
+                  {kioskState.paired ? kioskState.householdName ?? "Connected household" : "Not connected to a household"}
+                </p>
+              </div>
+              <span className={cn(
+                "shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold",
+                kioskState.paired ? "bg-member-green/15 text-member-green" : "bg-secondary text-muted-foreground"
+              )}>
+                {kioskState.paired ? "Paired" : "Unpaired"}
+              </span>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-2xl bg-secondary py-2">
+                <Wifi className="mx-auto size-4 text-member-blue" />
+                <p className="mt-1 text-xs font-medium">Strong</p>
+              </div>
+              <div className="rounded-2xl bg-secondary py-2">
+                <Battery className="mx-auto size-4 text-member-green" />
+                <p className="mt-1 text-xs font-medium">92%</p>
+              </div>
+              <div className="rounded-2xl bg-secondary py-2">
+                <RefreshCw className="mx-auto size-4 text-primary" />
+                <p className="mt-1 text-xs font-medium">2m ago</p>
+              </div>
+            </div>
           </div>
-        </>
-      )}
-      
-      {/* Device card */}
-      <div className="rounded-3xl bg-card p-4 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className="flex size-12 items-center justify-center rounded-2xl bg-foreground text-background">
-            <Tablet className="size-6" />
-          </span>
-          <div className="flex-1">
-            <p className="font-bold leading-tight">Kitchen Hub</p>
-            <p className="text-sm text-muted-foreground">{household ? household.name : "15\" Display · Living Room"}</p>
-          </div>
-          <span className="rounded-full bg-member-green/15 px-2 py-1 text-[11px] font-semibold text-member-green">
-            Online
-          </span>
+
+          {/* Connected household card */}
+          {kioskState.paired && (
+            <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
+              <div className="flex items-center gap-3 px-4 py-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
+                  <Home className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">Connected household</span>
+                  <span className="block text-xs text-muted-foreground">{kioskState.householdName ?? "—"}</span>
+                </span>
+              </div>
+              <ActionRow
+                icon={Link2Off}
+                label="Disconnect hub"
+                description="Unpair and issue a new pairing code"
+                onClick={() => setConfirm("unpair")}
+                destructive
+              />
+            </div>
+          )}
+
+          {/* Kiosk status widget (mobile app view of the connected kiosk) */}
+          {household && <KioskStatusWidget />}
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-2xl bg-secondary py-2">
-            <Wifi className="mx-auto size-4 text-member-blue" />
-            <p className="mt-1 text-xs font-medium">Strong</p>
-          </div>
-          <div className="rounded-2xl bg-secondary py-2">
-            <Battery className="mx-auto size-4 text-member-green" />
-            <p className="mt-1 text-xs font-medium">92%</p>
-          </div>
-          <div className="rounded-2xl bg-secondary py-2">
-            <RefreshCw className="mx-auto size-4 text-primary" />
-            <p className="mt-1 text-xs font-medium">2m ago</p>
-          </div>
-        </div>
-      </div>
+      </section>
 
       {/* Account */}
       <section>
