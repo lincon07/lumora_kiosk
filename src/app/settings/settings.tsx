@@ -75,6 +75,7 @@ import {
   reloadDisplay,
   checkForUpdates,
   clearCache,
+  factoryReset,
   getLogs,
   subscribeLogs,
   clearLogs,
@@ -936,10 +937,154 @@ function FamilyMembersSection() {
   )
 }
 
+/**
+ * Two-step factory reset confirmation dialog.
+ *
+ * Step 1: Warn the user about what will be deleted and ask them to continue.
+ * Step 2: Require them to type "RESET" before the action is enabled.
+ */
+function FactoryResetDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [step, setStep] = useState<1 | 2>(1)
+  const [typed, setTyped] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  // Reset internal state whenever the dialog opens.
+  useEffect(() => {
+    if (open) {
+      setStep(1)
+      setTyped("")
+      setBusy(false)
+    }
+  }, [open])
+
+  const confirmed = typed.trim().toUpperCase() === "RESET"
+
+  const handleReset = async () => {
+    if (!confirmed || busy) return
+    setBusy(true)
+    await factoryReset()
+    // factoryReset() reloads / exits — this line only runs in unexpected cases.
+    setBusy(false)
+    onClose()
+  }
+
+  return (
+    <BottomSheet open={open} onClose={onClose} title="Factory Reset">
+      {step === 1 ? (
+        <div className="space-y-4">
+          {/* Warning banner */}
+          <div className="flex items-start gap-3 rounded-2xl bg-destructive/10 p-4">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-destructive">This cannot be undone</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                A factory reset permanently deletes everything stored on this device.
+              </p>
+            </div>
+          </div>
+
+          {/* What gets deleted */}
+          <div className="divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60">
+            {[
+              { icon: User, label: "All family member profiles" },
+              { icon: Lock, label: "Account & authentication data" },
+              { icon: Wifi, label: "Saved Wi-Fi networks" },
+              { icon: ScrollText, label: "Activity logs & notifications" },
+              { icon: Trash2, label: "App preferences & settings" },
+            ].map(({ icon: Icon, label }) => (
+              <div key={label} className="flex items-center gap-3 px-4 py-2.5">
+                <Icon className="size-4 shrink-0 text-destructive/70" />
+                <span className="text-sm text-foreground">{label}</span>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            The device will restart and return to the initial setup wizard.
+          </p>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-xl border border-border bg-card py-3 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className="flex-1 rounded-xl bg-destructive py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 rounded-2xl bg-destructive/10 p-4">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
+            <p className="text-sm font-semibold text-destructive">
+              All data will be permanently erased. This device will be reset to factory defaults.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="reset-confirm" className="mb-2 block text-sm font-medium">
+              Type <span className="font-mono font-bold tracking-wider text-destructive">RESET</span> to confirm
+            </label>
+            <input
+              id="reset-confirm"
+              type="text"
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder="RESET"
+              className="w-full rounded-xl border border-border bg-background px-3 py-3 text-sm font-mono tracking-wider outline-none transition-colors focus:border-destructive"
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              disabled={busy}
+              className="flex-1 rounded-xl border border-border bg-card py-3 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleReset()}
+              disabled={!confirmed || busy}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-destructive py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {busy ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Resetting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="size-4" />
+                  Factory Reset
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+    </BottomSheet>
+  )
+}
+
 export function SettingsView() {
   const { clearNotifications, can } = useStore()
   const { user, household, signOut } = useAuth()
   const [confirm, setConfirm] = useState<null | "signout" | "clear" | "reset" | "delete">(null)
+  const [factoryResetOpen, setFactoryResetOpen] = useState(false)
 
   const confirmMeta = {
     signout: {
@@ -1063,19 +1208,30 @@ export function SettingsView() {
         <h2 className="px-1 pb-2 text-sm font-semibold text-destructive">Danger Zone</h2>
         <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
           <ActionRow icon={Bell} label="Clear notifications" onClick={() => setConfirm("clear")} />
-  {can("hub") ? (
-  <ActionRow icon={RefreshCw} label="Reset hub data" onClick={() => setConfirm("reset")} destructive />
-  ) : null}
-{!kioskConfig.enabled && !kioskConfig.hideSignOut ? (
-  <ActionRow icon={LogOut} label="Sign out" onClick={() => setConfirm("signout")} destructive />
-  ) : null}
-{can("hub") ? (
-  <ActionRow icon={Trash2} label="Delete account" onClick={() => setConfirm("delete")} destructive />
-  ) : null}
+          {can("hub") ? (
+            <ActionRow icon={RefreshCw} label="Reset hub data" onClick={() => setConfirm("reset")} destructive />
+          ) : null}
+          {!kioskConfig.enabled && !kioskConfig.hideSignOut ? (
+            <ActionRow icon={LogOut} label="Sign out" onClick={() => setConfirm("signout")} destructive />
+          ) : null}
+          {can("hub") ? (
+            <ActionRow icon={Trash2} label="Delete account" onClick={() => setConfirm("delete")} destructive />
+          ) : null}
+          {can("hub") ? (
+            <ActionRow
+              icon={RotateCcw}
+              label="Factory Reset"
+              description="Erase everything and return to setup"
+              onClick={() => setFactoryResetOpen(true)}
+              destructive
+            />
+          ) : null}
         </div>
       </section>
 
       <p className="pb-2 text-center text-xs text-muted-foreground">SkyNest Hub · v1.0.0</p>
+
+      <FactoryResetDialog open={factoryResetOpen} onClose={() => setFactoryResetOpen(false)} />
 
       <ConfirmDialog
         open={!!active}

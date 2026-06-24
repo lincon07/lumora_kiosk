@@ -188,6 +188,61 @@ async fn timezone_set(timezone: String) -> Result<bool, String> {
 
 /// Derive a rough "UTC±HH:MM" string by reading /etc/localtime symlink target
 /// for display in the UI.  Falls back to "UTC" on any error.
+// ─── Factory Reset ────────────────────────────────────────────────────────────
+
+/// Wipe all persistent kiosk data and terminate the process.
+///
+/// What this does:
+///   1. Deletes every file inside the Tauri app data / config directory so
+///      the next launch starts the setup wizard fresh.
+///   2. Calls `std::process::exit(0)` — the OS will restart the kiosk process
+///      via the configured systemd/autostart service, which will then show the
+///      first-run wizard because the data directory is empty.
+///
+/// **This is irreversible.** The frontend must enforce a two-step confirmation
+/// before invoking this command.
+#[tauri::command]
+async fn factory_reset(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    // Collect paths to wipe.
+    let mut dirs_to_clear: Vec<std::path::PathBuf> = Vec::new();
+
+    if let Ok(p) = app.path().app_data_dir() {
+        dirs_to_clear.push(p);
+    }
+    if let Ok(p) = app.path().app_config_dir() {
+        dirs_to_clear.push(p);
+    }
+    if let Ok(p) = app.path().app_cache_dir() {
+        dirs_to_clear.push(p);
+    }
+    if let Ok(p) = app.path().app_log_dir() {
+        dirs_to_clear.push(p);
+    }
+
+    // Remove everything inside each directory (not the directory itself so
+    // the app can recreate it on next launch without permission issues).
+    for dir in &dirs_to_clear {
+        if dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let _ = std::fs::remove_dir_all(&path);
+                    } else {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Give the filesystem a moment to flush, then hard-exit.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    std::process::exit(0);
+}
+
 fn get_utc_offset_string(timezone: &str) -> String {
     // Use the `date` command for a reliable, dependency-free offset string.
     let output = Command::new("date")
@@ -228,6 +283,7 @@ pub fn run() {
             locale_set,
             timezone_get,
             timezone_set,
+            factory_reset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
