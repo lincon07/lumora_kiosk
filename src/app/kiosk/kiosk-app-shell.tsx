@@ -9,7 +9,7 @@ import { ChoresView } from "@/app/chores/chores"
 import { ListsView } from "@/app/lists/lists"
 import { MealsView } from "@/app/meals/meals"
 import { PhotosView } from "@/app/photos/photos"
-import { KioskSettingsView } from "./kiosk-settings"
+import { SettingsView } from "@/app/settings/settings"
 import { useStore, type TabKey } from "@/lib/store"
 
 const todaySubtitle = new Date().toLocaleDateString(undefined, {
@@ -56,7 +56,7 @@ export function KioskAppShell() {
               {tab === "lists" && <ListsView />}
               {tab === "meals" && <MealsView />}
               {tab === "photos" && <PhotosView />}
-              {tab === "settings" && <KioskSettingsView />}
+              {tab === "settings" && <SettingsView />}
             </div>
           )}
         </main>
