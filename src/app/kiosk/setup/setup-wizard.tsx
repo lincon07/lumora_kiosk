@@ -12,6 +12,7 @@ import {
   Loader2,
 } from "lucide-react"
 import { WifiStep } from "./wifi-step"
+import { applyLocaleSettings } from "@/lib/locale-service"
 
 export type SetupValues = {
   language: string
@@ -128,8 +129,14 @@ export function SetupWizard({
   const isLast = stepIdx === STEPS.length - 1
   const canAdvance = step.id === "name" ? deviceName.trim().length > 0 : true
 
-  const next = () => {
+  const next = async () => {
     if (isLast) {
+      // Apply language and timezone to the OS before persisting setup values.
+      // Errors are non-fatal — the wizard completes either way; the caller can
+      // surface locale apply failures through saveError if needed.
+      await applyLocaleSettings({ language, timezone }).catch((err) => {
+        console.error("[setup-wizard] applyLocaleSettings failed:", err)
+      })
       onComplete({ language, timezone, deviceName: deviceName.trim() })
       return
     }
@@ -236,7 +243,7 @@ export function SetupWizard({
                 value={deviceName}
                 onChange={(e) => setDeviceName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && canAdvance && !saving) next()
+                  if (e.key === "Enter" && canAdvance && !saving) void next()
                 }}
                 maxLength={40}
                 placeholder="e.g. Kitchen Hub"
@@ -274,7 +281,7 @@ export function SetupWizard({
           </button>
           <button
             type="button"
-            onClick={next}
+            onClick={() => void next()}
             disabled={!canAdvance || saving}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-8 py-3.5 text-base font-semibold text-primary-foreground disabled:opacity-50"
           >
