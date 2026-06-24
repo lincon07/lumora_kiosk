@@ -8,12 +8,6 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | und
 /** True when Supabase is configured — used to pick the active API adapter. */
 export const isSupabaseConfigured = !!(SUPABASE_URL && SUPABASE_ANON_KEY)
 
-console.log("[v0] Supabase Init:", {
-  configured: isSupabaseConfigured,
-  url: SUPABASE_URL ? "✓ set" : "✗ missing",
-  key: SUPABASE_ANON_KEY ? "✓ set" : "✗ missing",
-})
-
 // A single shared client. Supabase Auth uses bearer tokens in the Authorization
 // header (not cookies), which is exactly why it works inside the Tauri iOS
 // webview where the `tauri://localhost` origin previously broke cookie auth.
