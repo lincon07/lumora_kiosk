@@ -26,6 +26,9 @@ tauri-plugin-process = "2"
 # can't share cookies with native requests); `unsafe-headers` lets us set the
 # forbidden `Origin` header so Better Auth's CSRF check accepts the request.
 tauri-plugin-http = { version = "2", features = ["cookies", "unsafe-headers"] }
+# Native key-value store: persists the device setup state object to a JSON file
+# in the app data dir so it survives restarts independent of webview storage.
+tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

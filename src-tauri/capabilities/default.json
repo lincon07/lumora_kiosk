@@ -10,6 +10,8 @@
     "notification:default",
     "process:default",
     "process:allow-restart",
+    "store:default",
+    "core:event:default",
     {
       "identifier": "http:default",
       "allow": [{ "url": "https://*.neon.tech/*" }]

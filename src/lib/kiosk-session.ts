@@ -35,6 +35,10 @@ export type KioskState = {
   pairingCode: string | null
   householdId: string | null
   householdName: string | null
+  /** Server-side mirror of whether the setup wizard has been completed. */
+  setupComplete: boolean
+  language: string | null
+  timezone: string | null
 }
 
 const UNPAIRED: KioskState = {
@@ -45,6 +49,9 @@ const UNPAIRED: KioskState = {
   pairingCode: null,
   householdId: null,
   householdName: null,
+  setupComplete: false,
+  language: null,
+  timezone: null,
 }
 
 export function getDeviceToken(): string | null {
@@ -157,6 +164,9 @@ export async function fetchKioskState(): Promise<KioskState> {
     pairing_code?: string
     household_id?: string
     household_name?: string
+    setup_complete?: boolean
+    language?: string
+    timezone?: string
   }
 
   // Token not found server-side (device row deleted) -> reset so we re-register.
@@ -173,7 +183,42 @@ export async function fetchKioskState(): Promise<KioskState> {
     pairingCode: row.pairing_code ?? null,
     householdId: row.household_id ?? null,
     householdName: row.household_name ?? null,
+    setupComplete: !!row.setup_complete,
+    language: row.language ?? null,
+    timezone: row.timezone ?? null,
   }
+}
+
+/**
+ * Persist the device setup (name, language, timezone) to Lumora Cloud and mark
+ * setup complete server-side. Keyed by the device token. Returns true on
+ * success; throws if the RPC isn't deployed.
+ */
+export async function saveSetup(input: {
+  deviceName: string
+  language: string
+  timezone: string
+}): Promise<boolean> {
+  const token = getDeviceToken()
+  if (!token) return false
+  const { error } = await supabase.rpc("kiosk_save_setup", {
+    p_device_token: token,
+    p_device_name: input.deviceName,
+    p_language: input.language,
+    p_timezone: input.timezone,
+  })
+  if (error) {
+    console.error("[kiosk] kiosk_save_setup failed:", error.message, error.code)
+    if (error.code === "PGRST202" || error.message?.includes("Could not find the function")) {
+      throw new Error(
+        "The kiosk_save_setup function is not deployed yet. Please run the Supabase migration.",
+      )
+    }
+    throw new Error(`Could not save setup: ${error.message}`)
+  }
+  // Keep the legacy device-name mirror in sync.
+  setDeviceName(input.deviceName)
+  return true
 }
 
 /** Report live device metrics to the backend (heartbeat). */
