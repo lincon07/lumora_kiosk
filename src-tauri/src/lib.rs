@@ -10,11 +10,8 @@ fn greet(name: &str) -> String {
 
 /// A WiFi network as surfaced to the Lumora setup UI.
 ///
-/// On a real Linux kiosk these are produced by talking to NetworkManager
-/// (e.g. via `nmcli` or the D-Bus API). The implementation below is a stub so
-/// the frontend service abstraction has commands to call; wire the actual
-/// NetworkManager calls in here later. The shape MUST stay in sync with
-/// `WifiNetwork` in `src/lib/wifi-service.ts`.
+/// Produced by parsing `nmcli` output on Linux (NetworkManager).
+/// The shape MUST stay in sync with `WifiNetwork` in `src/lib/wifi-service.ts`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct WifiNetwork {
     ssid: String,
@@ -26,33 +23,164 @@ struct WifiNetwork {
     connected: bool,
 }
 
-/// Scan for nearby WiFi networks.
+// ─── nmcli helpers ────────────────────────────────────────────────────────────
+
+/// Parse a single terse nmcli line (`:` separated, backslash-escaped).
 ///
-/// TODO(networkmanager): replace with a real scan, e.g. shell out to
-/// `nmcli -t -f SSID,SIGNAL,SECURITY,IN-USE dev wifi list` and parse, or use
-/// the NetworkManager D-Bus API. Returning an empty list signals "no native
-/// backend yet" to the frontend, which then uses its dev fallback.
+/// Fields: SSID, SIGNAL, SECURITY, IN-USE
+fn parse_nmcli_wifi_line(line: &str) -> Option<WifiNetwork> {
+    // nmcli -t escapes literal colons as `\:`. Split on unescaped colons only.
+    let mut fields: Vec<String> = Vec::with_capacity(4);
+    let mut current = String::new();
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            // consume the next char as a literal
+            if let Some(next) = chars.next() {
+                current.push(next);
+            }
+        } else if c == ':' {
+            fields.push(current.clone());
+            current.clear();
+        } else {
+            current.push(c);
+        }
+    }
+    fields.push(current);
+
+    if fields.len() < 4 {
+        return None;
+    }
+
+    let ssid = fields[0].trim().to_string();
+    if ssid.is_empty() {
+        return None; // hidden/empty SSID — skip
+    }
+
+    let signal: u8 = fields[1].trim().parse().unwrap_or(0);
+
+    let sec_raw = fields[2].trim().to_uppercase();
+    let security = if sec_raw == "--" || sec_raw.is_empty() {
+        "open"
+    } else if sec_raw.contains("WEP") {
+        "wep"
+    } else {
+        "wpa" // WPA1, WPA2, WPA3, OWE, etc.
+    }
+    .to_string();
+
+    // IN-USE is "*" when connected, empty otherwise.
+    let connected = fields[3].trim() == "*";
+
+    Some(WifiNetwork { ssid, signal, security, connected })
+}
+
+// ─── WiFi commands ────────────────────────────────────────────────────────────
+
+/// Scan for nearby WiFi networks using NetworkManager's `nmcli`.
+///
+/// Triggers a fresh rescan (`--rescan yes`) before listing, deduplicates by
+/// SSID (nmcli can list the same network multiple times on different BSSIDs),
+/// and returns networks sorted strongest-first.
+///
+/// Returns an empty list when `nmcli` is unavailable (e.g. during development
+/// outside the kiosk), which causes the frontend to fall back to its mock list.
 #[tauri::command]
 async fn wifi_scan() -> Result<Vec<WifiNetwork>, String> {
-    Ok(Vec::new())
+    let output = Command::new("nmcli")
+        .args([
+            "--terse",
+            "--fields", "SSID,SIGNAL,SECURITY,IN-USE",
+            "dev", "wifi", "list",
+            "--rescan", "yes",
+        ])
+        .output();
+
+    let output = match output {
+        Ok(o) => o,
+        Err(_) => {
+            // nmcli not available — return empty so the frontend uses its mock.
+            return Ok(Vec::new());
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut networks: Vec<WifiNetwork> = stdout
+        .lines()
+        .filter_map(parse_nmcli_wifi_line)
+        .filter(|n| seen.insert(n.ssid.clone())) // deduplicate by SSID
+        .collect();
+
+    // Strongest signal first.
+    networks.sort_by(|a, b| b.signal.cmp(&a.signal));
+
+    Ok(networks)
 }
 
-/// Connect to a WiFi network with an optional password.
+/// Connect to a WiFi network via `nmcli dev wifi connect`.
 ///
-/// TODO(networkmanager): replace with e.g.
-/// `nmcli dev wifi connect "<ssid>" password "<password>"`.
+/// For open networks omit the `password` argument entirely.
+/// Returns `true` on success, or an error string on failure.
 #[tauri::command]
-async fn wifi_connect(ssid: String, _password: Option<String>) -> Result<bool, String> {
-    let _ = ssid;
-    Err("NetworkManager backend not implemented yet".to_string())
+async fn wifi_connect(ssid: String, password: Option<String>) -> Result<bool, String> {
+    let mut cmd = Command::new("nmcli");
+    cmd.arg("dev").arg("wifi").arg("connect").arg(&ssid);
+
+    if let Some(ref pwd) = password {
+        cmd.arg("password").arg(pwd);
+    }
+
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to invoke nmcli: {e}"))?;
+
+    if output.status.success() {
+        Ok(true)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!(
+            "Could not connect to \"{ssid}\": {}",
+            stderr.trim()
+        ))
+    }
 }
 
-/// Return the SSID of the currently connected network, if any.
+/// Return the SSID of the currently active WiFi connection, if any.
 ///
-/// TODO(networkmanager): replace with e.g.
-/// `nmcli -t -f NAME,TYPE connection show --active`.
+/// Reads the active device list from `nmcli` and returns the connection name
+/// for any device of type `wifi` that is in the `connected` state.
 #[tauri::command]
 async fn wifi_status() -> Result<Option<String>, String> {
+    let output = Command::new("nmcli")
+        .args([
+            "--terse",
+            "--fields", "DEVICE,TYPE,STATE,CONNECTION",
+            "dev", "status",
+        ])
+        .output();
+
+    let output = match output {
+        Ok(o) => o,
+        Err(_) => return Ok(None),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Lines are: DEVICE:TYPE:STATE:CONNECTION
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.splitn(4, ':').collect();
+        if parts.len() < 4 {
+            continue;
+        }
+        if parts[1] == "wifi" && parts[2] == "connected" {
+            let conn = parts[3].trim().to_string();
+            if !conn.is_empty() {
+                return Ok(Some(conn));
+            }
+        }
+    }
+
     Ok(None)
 }
 
