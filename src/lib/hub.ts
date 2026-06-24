@@ -128,6 +128,58 @@ export async function clearCache(): Promise<void> {
   addLog("success", "system", "Cache cleared")
 }
 
+/**
+ * Factory reset the kiosk device.
+ *
+ * Steps performed:
+ *   1. Clear all in-memory activity logs.
+ *   2. Clear all browser/webview caches.
+ *   3. Clear localStorage and sessionStorage.
+ *   4. On Tauri: invoke the `factory_reset` Rust command which wipes the
+ *      on-disk kiosk data directory and then terminates the process.
+ *   5. On browser preview: reload so the app returns to the setup wizard.
+ */
+export async function factoryReset(): Promise<void> {
+  // 1. Clear activity log.
+  clearLogs()
+
+  // 2. Clear web caches.
+  try {
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys()
+      await Promise.all(keys.map((k) => caches.delete(k)))
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Clear browser storage.
+  try {
+    localStorage.clear()
+    sessionStorage.clear()
+  } catch {
+    // ignore
+  }
+
+  // 4. Tauri: delegate the hard disk wipe + process exit to Rust.
+  if (isTauri()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      await invoke("factory_reset")
+      // The Rust command calls std::process::exit(0) so we never get here,
+      // but add a fallback relaunch just in case.
+      const { relaunch } = await import("@tauri-apps/plugin-process")
+      await relaunch()
+      return
+    } catch {
+      // fall through
+    }
+  }
+
+  // 5. Browser preview fallback — reload to the setup wizard.
+  window.location.reload()
+}
+
 export function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const min = Math.floor(diff / 60_000)
