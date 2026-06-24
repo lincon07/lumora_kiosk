@@ -3,7 +3,7 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main"],
-  "platforms": ["iOS"],
+  "platforms": ["android", "macOS"],
   "permissions": [
     "core:default",
     "opener:default",
