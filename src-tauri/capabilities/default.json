@@ -3,7 +3,7 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main"],
-  "platforms": ["android", "macOS"],
+  "platforms": ["linux", "windows", "macOS", "android", "iOS"],
   "permissions": [
     "core:default",
     "opener:default",
@@ -14,7 +14,11 @@
     "core:event:default",
     {
       "identifier": "http:default",
-      "allow": [{ "url": "https://*.neon.tech/*" }]
+      "allow": [
+        { "url": "https://*.neon.tech/*" },
+        { "url": "https://*.supabase.co/*" },
+        { "url": "https://*.supabase.io/*" }
+      ]
     }
   ]
 }

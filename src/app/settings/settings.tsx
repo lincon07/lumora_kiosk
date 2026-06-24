@@ -41,6 +41,8 @@ import {
   MonitorSmartphone,
   Link2Off,
   Home,
+  Globe,
+  Clock,
   type LucideIcon,
 } from "lucide-react"
 import {
@@ -86,6 +88,13 @@ import {
   relativeTime,
   type HubLogLevel,
 } from "@/lib/hub"
+import {
+  getLanguage,
+  setLanguage,
+  getTimezone,
+  setTimezone,
+} from "@/lib/locale-service"
+
 
 function Toggle({
   label,
@@ -1084,6 +1093,332 @@ function FactoryResetDialog({ open, onClose }: { open: boolean; onClose: () => v
   )
 }
 
+// ─── Language & Region ────────────────────────────────────────────────────────
+
+/**
+ * Full list of supported OS locales.
+ *
+ * On a real kiosk each entry maps to a POSIX locale that `localectl set-locale`
+ * understands. The Rust command converts BCP-47 codes (e.g. "en-US") to the
+ * required POSIX form (e.g. "en_US.UTF-8") before invoking localectl.
+ *
+ * This changes the OPERATING SYSTEM language — not just the app — so
+ * shell commands, system dialogs, and the display manager all switch locale
+ * after the next session/reboot.
+ */
+const SUPPORTED_LANGUAGES = [
+  { code: "en-US", label: "English (US)", native: "English" },
+  { code: "en-GB", label: "English (UK)", native: "English (UK)" },
+  { code: "es-ES", label: "Spanish", native: "Español" },
+  { code: "es-MX", label: "Spanish (Mexico)", native: "Español (MX)" },
+  { code: "fr-FR", label: "French", native: "Français" },
+  { code: "de-DE", label: "German", native: "Deutsch" },
+  { code: "it-IT", label: "Italian", native: "Italiano" },
+  { code: "pt-BR", label: "Portuguese (Brazil)", native: "Português" },
+  { code: "pt-PT", label: "Portuguese (Portugal)", native: "Português (PT)" },
+  { code: "nl-NL", label: "Dutch", native: "Nederlands" },
+  { code: "sv-SE", label: "Swedish", native: "Svenska" },
+  { code: "no-NO", label: "Norwegian", native: "Norsk" },
+  { code: "da-DK", label: "Danish", native: "Dansk" },
+  { code: "fi-FI", label: "Finnish", native: "Suomi" },
+  { code: "pl-PL", label: "Polish", native: "Polski" },
+  { code: "cs-CZ", label: "Czech", native: "Čeština" },
+  { code: "hu-HU", label: "Hungarian", native: "Magyar" },
+  { code: "ru-RU", label: "Russian", native: "Русский" },
+  { code: "uk-UA", label: "Ukrainian", native: "Українська" },
+  { code: "tr-TR", label: "Turkish", native: "Türkçe" },
+  { code: "el-GR", label: "Greek", native: "Ελληνικά" },
+  { code: "ro-RO", label: "Romanian", native: "Română" },
+  { code: "ja-JP", label: "Japanese", native: "日本語" },
+  { code: "zh-CN", label: "Chinese (Simplified)", native: "中文 (简体)" },
+  { code: "zh-TW", label: "Chinese (Traditional)", native: "中文 (繁體)" },
+  { code: "ko-KR", label: "Korean", native: "한국어" },
+  { code: "ar-SA", label: "Arabic", native: "العربية" },
+  { code: "he-IL", label: "Hebrew", native: "עברית" },
+  { code: "hi-IN", label: "Hindi", native: "हिंदी" },
+  { code: "th-TH", label: "Thai", native: "ภาษาไทย" },
+  { code: "vi-VN", label: "Vietnamese", native: "Tiếng Việt" },
+  { code: "id-ID", label: "Indonesian", native: "Bahasa Indonesia" },
+  { code: "ms-MY", label: "Malay", native: "Bahasa Melayu" },
+]
+
+/**
+ * A subset of common IANA timezone identifiers.
+ * Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+ */
+const SUPPORTED_TIMEZONES = [
+  { tz: "UTC", label: "UTC (Coordinated Universal Time)" },
+  { tz: "America/New_York", label: "Eastern Time — New York" },
+  { tz: "America/Chicago", label: "Central Time — Chicago" },
+  { tz: "America/Denver", label: "Mountain Time — Denver" },
+  { tz: "America/Phoenix", label: "Mountain Time — Phoenix (no DST)" },
+  { tz: "America/Los_Angeles", label: "Pacific Time — Los Angeles" },
+  { tz: "America/Anchorage", label: "Alaska Time — Anchorage" },
+  { tz: "Pacific/Honolulu", label: "Hawaii Time — Honolulu" },
+  { tz: "America/Toronto", label: "Eastern Time — Toronto" },
+  { tz: "America/Vancouver", label: "Pacific Time — Vancouver" },
+  { tz: "America/Sao_Paulo", label: "Brasília — São Paulo" },
+  { tz: "America/Argentina/Buenos_Aires", label: "Argentina — Buenos Aires" },
+  { tz: "America/Mexico_City", label: "Central Time — Mexico City" },
+  { tz: "Europe/London", label: "GMT/BST — London" },
+  { tz: "Europe/Paris", label: "Central European — Paris" },
+  { tz: "Europe/Berlin", label: "Central European — Berlin" },
+  { tz: "Europe/Madrid", label: "Central European — Madrid" },
+  { tz: "Europe/Rome", label: "Central European — Rome" },
+  { tz: "Europe/Amsterdam", label: "Central European — Amsterdam" },
+  { tz: "Europe/Stockholm", label: "Central European — Stockholm" },
+  { tz: "Europe/Moscow", label: "Moscow Time — Moscow" },
+  { tz: "Europe/Istanbul", label: "Turkey Time — Istanbul" },
+  { tz: "Europe/Warsaw", label: "Central European — Warsaw" },
+  { tz: "Europe/Zurich", label: "Central European — Zurich" },
+  { tz: "Africa/Cairo", label: "Egypt Time — Cairo" },
+  { tz: "Africa/Nairobi", label: "East Africa — Nairobi" },
+  { tz: "Africa/Johannesburg", label: "South Africa — Johannesburg" },
+  { tz: "Africa/Lagos", label: "West Africa — Lagos" },
+  { tz: "Asia/Dubai", label: "Gulf Time — Dubai" },
+  { tz: "Asia/Riyadh", label: "Arabia Time — Riyadh" },
+  { tz: "Asia/Kolkata", label: "India Time — Kolkata" },
+  { tz: "Asia/Dhaka", label: "Bangladesh — Dhaka" },
+  { tz: "Asia/Bangkok", label: "Indochina — Bangkok" },
+  { tz: "Asia/Singapore", label: "Singapore Time" },
+  { tz: "Asia/Shanghai", label: "China Time — Shanghai" },
+  { tz: "Asia/Tokyo", label: "Japan Time — Tokyo" },
+  { tz: "Asia/Seoul", label: "Korea Time — Seoul" },
+  { tz: "Asia/Hong_Kong", label: "Hong Kong Time" },
+  { tz: "Asia/Jakarta", label: "Western Indonesia — Jakarta" },
+  { tz: "Asia/Karachi", label: "Pakistan — Karachi" },
+  { tz: "Asia/Tehran", label: "Iran Time — Tehran" },
+  { tz: "Australia/Sydney", label: "Eastern Australia — Sydney" },
+  { tz: "Australia/Melbourne", label: "Eastern Australia — Melbourne" },
+  { tz: "Australia/Perth", label: "Western Australia — Perth" },
+  { tz: "Pacific/Auckland", label: "New Zealand — Auckland" },
+  { tz: "Pacific/Fiji", label: "Fiji Time" },
+]
+
+function LanguageRegionSection() {
+  const [currentLang, setCurrentLang] = useState<string | null>(null)
+  const [currentTz, setCurrentTz] = useState<string | null>(null)
+  const [langSheetOpen, setLangSheetOpen] = useState(false)
+  const [tzSheetOpen, setTzSheetOpen] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+  const [langSearch, setLangSearch] = useState("")
+  const [tzSearch, setTzSearch] = useState("")
+
+  useEffect(() => {
+    getLanguage().then((r) => setCurrentLang(r.lang))
+    getTimezone().then((r) => setCurrentTz(r.timezone))
+  }, [])
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  const activeLang = SUPPORTED_LANGUAGES.find(
+    (l) => l.code === currentLang || l.code.replace("-", "_") === currentLang?.split(".")[0],
+  )
+  const activeTz = SUPPORTED_TIMEZONES.find((t) => t.tz === currentTz)
+
+  const applyLanguage = async (code: string) => {
+    setApplying(true)
+    setLangSheetOpen(false)
+    try {
+      const ok = await setLanguage(code)
+      if (ok) {
+        setCurrentLang(code)
+        setToast("OS language updated — takes effect after a restart")
+      } else {
+        setToast("Could not apply language — check system permissions")
+      }
+    } catch {
+      setToast("Could not apply language")
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const applyTimezone = async (tz: string) => {
+    setApplying(true)
+    setTzSheetOpen(false)
+    try {
+      const ok = await setTimezone(tz)
+      if (ok) {
+        setCurrentTz(tz)
+        setToast("Timezone updated — takes effect immediately")
+      } else {
+        setToast("Could not apply timezone — check system permissions")
+      }
+    } catch {
+      setToast("Could not apply timezone")
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const filteredLangs = langSearch.trim()
+    ? SUPPORTED_LANGUAGES.filter(
+        (l) =>
+          l.label.toLowerCase().includes(langSearch.toLowerCase()) ||
+          l.native.toLowerCase().includes(langSearch.toLowerCase()) ||
+          l.code.toLowerCase().includes(langSearch.toLowerCase()),
+      )
+    : SUPPORTED_LANGUAGES
+
+  const filteredTzs = tzSearch.trim()
+    ? SUPPORTED_TIMEZONES.filter(
+        (t) =>
+          t.label.toLowerCase().includes(tzSearch.toLowerCase()) ||
+          t.tz.toLowerCase().includes(tzSearch.toLowerCase()),
+      )
+    : SUPPORTED_TIMEZONES
+
+  return (
+    <section>
+      <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Language & Region</h2>
+
+      {/* OS-level explanation banner */}
+      <div className="mb-3 flex items-start gap-3 rounded-2xl border border-border/60 bg-card px-4 py-3 shadow-sm">
+        <Globe className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          These settings change the <span className="font-semibold text-foreground">operating system language</span> via{" "}
+          <span className="font-mono text-[11px]">localectl</span> and timezone via{" "}
+          <span className="font-mono text-[11px]">timedatectl</span> — affecting the entire kiosk, not just the app.
+          Language changes take effect after a restart; timezone changes are immediate.
+        </p>
+      </div>
+
+      <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
+        {/* Language */}
+        <ActionRow
+          icon={Globe}
+          label="Display Language"
+          description={activeLang ? `${activeLang.label} — ${activeLang.native}` : (currentLang ?? "Detecting…")}
+          onClick={() => { setLangSearch(""); setLangSheetOpen(true) }}
+          trailing={
+            applying ? (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            ) : (
+              <ChevronRight className="size-4 text-muted-foreground" />
+            )
+          }
+        />
+        {/* Timezone */}
+        <ActionRow
+          icon={Clock}
+          label="Time Zone"
+          description={activeTz ? activeTz.label : (currentTz ?? "Detecting…")}
+          onClick={() => { setTzSearch(""); setTzSheetOpen(true) }}
+          trailing={
+            applying ? (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            ) : (
+              <ChevronRight className="size-4 text-muted-foreground" />
+            )
+          }
+        />
+      </div>
+
+      {toast ? (
+        <p className="mt-2 rounded-2xl bg-secondary/60 px-4 py-2.5 text-xs font-medium text-foreground">{toast}</p>
+      ) : null}
+
+      {/* Language picker sheet */}
+      <BottomSheet open={langSheetOpen} onClose={() => setLangSheetOpen(false)} title="Display Language">
+        <div className="mb-3">
+          <input
+            type="search"
+            placeholder="Search languages…"
+            value={langSearch}
+            onChange={(e) => setLangSearch(e.target.value)}
+            className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition-colors focus:border-primary"
+          />
+        </div>
+        <ul className="max-h-[55vh] divide-y divide-border/60 overflow-y-auto overscroll-contain rounded-2xl bg-background">
+          {filteredLangs.length === 0 ? (
+            <li className="px-4 py-8 text-center text-sm text-muted-foreground">No languages match</li>
+          ) : (
+            filteredLangs.map((lang) => {
+              const active = lang.code === currentLang || lang.code.replace("-", "_") === currentLang?.split(".")[0]
+              return (
+                <li key={lang.code}>
+                  <button
+                    type="button"
+                    onClick={() => void applyLanguage(lang.code)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium">{lang.native}</span>
+                      <span className="block text-xs text-muted-foreground">{lang.label}</span>
+                    </span>
+                    {active ? (
+                      <Check className="size-4 shrink-0 text-member-green" />
+                    ) : (
+                      <span className="w-4" />
+                    )}
+                  </button>
+                </li>
+              )
+            })
+          )}
+        </ul>
+        <p className="mt-3 text-center text-[11px] text-muted-foreground">
+          Runs{" "}
+          <span className="font-mono">localectl set-locale LANG=xx_XX.UTF-8</span>{" "}
+          on the kiosk OS
+        </p>
+      </BottomSheet>
+
+      {/* Timezone picker sheet */}
+      <BottomSheet open={tzSheetOpen} onClose={() => setTzSheetOpen(false)} title="Time Zone">
+        <div className="mb-3">
+          <input
+            type="search"
+            placeholder="Search timezones…"
+            value={tzSearch}
+            onChange={(e) => setTzSearch(e.target.value)}
+            className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition-colors focus:border-primary"
+          />
+        </div>
+        <ul className="max-h-[55vh] divide-y divide-border/60 overflow-y-auto overscroll-contain rounded-2xl bg-background">
+          {filteredTzs.length === 0 ? (
+            <li className="px-4 py-8 text-center text-sm text-muted-foreground">No timezones match</li>
+          ) : (
+            filteredTzs.map((entry) => {
+              const active = entry.tz === currentTz
+              return (
+                <li key={entry.tz}>
+                  <button
+                    type="button"
+                    onClick={() => void applyTimezone(entry.tz)}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium">{entry.label}</span>
+                      <span className="block text-xs font-mono text-muted-foreground">{entry.tz}</span>
+                    </span>
+                    {active ? (
+                      <Check className="size-4 shrink-0 text-member-green" />
+                    ) : (
+                      <span className="w-4" />
+                    )}
+                  </button>
+                </li>
+              )
+            })
+          )}
+        </ul>
+        <p className="mt-3 text-center text-[11px] text-muted-foreground">
+          Runs{" "}
+          <span className="font-mono">timedatectl set-timezone</span>{" "}
+          on the kiosk OS
+        </p>
+      </BottomSheet>
+    </section>
+  )
+}
+
 export function SettingsView() {
   const { clearNotifications, can } = useStore()
   const { user, household, signOut } = useAuth()
@@ -1220,6 +1555,9 @@ export function SettingsView() {
         <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Appearance</h2>
         <AppearanceControl />
       </section>
+
+      {/* Language & Region */}
+      <LanguageRegionSection />
 
       {/* Push notifications */}
       <PushNotificationsSection />
