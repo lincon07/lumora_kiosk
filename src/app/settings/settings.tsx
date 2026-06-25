@@ -34,6 +34,8 @@ import {
   Link2Off,
   Globe,
   Clock,
+  Wifi,
+  User,
   type LucideIcon,
 } from "lucide-react"
 import {
@@ -84,7 +86,17 @@ import {
   setLanguage,
   getTimezone,
   setTimezone,
+  setOrientation,
+  type ScreenOrientation,
 } from "@/lib/locale-service"
+import {
+  scanNetworks,
+  connect as wifiConnect,
+  currentNetwork,
+  needsPassword,
+  type WifiNetwork,
+} from "@/lib/wifi-service"
+import { patchDeviceState } from "@/lib/device-state"
 
 
 function Toggle({
@@ -1084,6 +1096,211 @@ function FactoryResetDialog({ open, onClose }: { open: boolean; onClose: () => v
   )
 }
 
+// ─── WiFi ────────────────────────────────────────────────────────────────────
+
+function SignalBars({ signal }: { signal: number }) {
+  const pct = Math.round(signal)
+  const color = pct >= 70 ? "text-member-green" : pct >= 40 ? "text-member-amber" : "text-destructive"
+  return (
+    <span className={cn("text-[11px] font-semibold tabular-nums", color)}>
+      {pct}%
+    </span>
+  )
+}
+
+function WifiSection() {
+  const [currentSsid, setCurrentSsid] = useState<string | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [networks, setNetworks] = useState<WifiNetwork[]>([])
+  const [scanning, setScanning] = useState(false)
+  const [connecting, setConnecting] = useState<string | null>(null)
+  const [passwordFor, setPasswordFor] = useState<WifiNetwork | null>(null)
+  const [password, setPassword] = useState("")
+  const [toast, setToast] = useState<string | null>(null)
+  const [connectError, setConnectError] = useState<string | null>(null)
+
+  useEffect(() => {
+    currentNetwork().then(setCurrentSsid).catch(() => null)
+  }, [])
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(t)
+  }, [toast])
+
+  const scan = async () => {
+    setScanning(true)
+    setConnectError(null)
+    try {
+      const nets = await scanNetworks()
+      setNetworks(nets)
+    } catch {
+      setConnectError("Scan failed — check WiFi hardware")
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const openSheet = () => {
+    setSheetOpen(true)
+    setPasswordFor(null)
+    setPassword("")
+    setConnectError(null)
+    void scan()
+  }
+
+  const doConnect = async (ssid: string, pwd?: string) => {
+    setConnecting(ssid)
+    setConnectError(null)
+    try {
+      const ok = await wifiConnect(ssid, pwd)
+      if (ok) {
+        setCurrentSsid(ssid)
+        setSheetOpen(false)
+        setPasswordFor(null)
+        setPassword("")
+        setToast(`Connected to ${ssid}`)
+      } else {
+        setConnectError("Connection failed — wrong password?")
+      }
+    } catch (e) {
+      setConnectError(e instanceof Error ? e.message : "Connection failed")
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  const handleNetworkTap = (net: WifiNetwork) => {
+    if (net.connected) return
+    if (needsPassword(net.security)) {
+      setPasswordFor(net)
+      setPassword("")
+      setConnectError(null)
+    } else {
+      void doConnect(net.ssid)
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">WiFi</h2>
+      <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
+        <ActionRow
+          icon={Wifi}
+          label="Network"
+          description={currentSsid ?? "Not connected"}
+          onClick={openSheet}
+        />
+      </div>
+
+      {toast ? (
+        <p className="mt-2 rounded-2xl bg-secondary/60 px-4 py-2.5 text-xs font-medium text-foreground">{toast}</p>
+      ) : null}
+
+      {/* Network picker */}
+      <BottomSheet open={sheetOpen && !passwordFor} onClose={() => setSheetOpen(false)} title="WiFi Network">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">{networks.length} networks found</p>
+          <button
+            type="button"
+            onClick={() => void scan()}
+            disabled={scanning}
+            className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-secondary/70 disabled:opacity-40"
+          >
+            {scanning ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+            {scanning ? "Scanning…" : "Rescan"}
+          </button>
+        </div>
+
+        {connectError ? (
+          <p className="mb-3 rounded-xl bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">{connectError}</p>
+        ) : null}
+
+        <ul className="max-h-[55vh] divide-y divide-border/60 overflow-y-auto overscroll-contain rounded-2xl bg-background">
+          {scanning && networks.length === 0 ? (
+            <li className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Scanning…
+            </li>
+          ) : networks.length === 0 ? (
+            <li className="px-4 py-10 text-center text-sm text-muted-foreground">No networks found</li>
+          ) : (
+            networks.map((net) => {
+              const isConnecting = connecting === net.ssid
+              return (
+                <li key={net.ssid}>
+                  <button
+                    type="button"
+                    onClick={() => handleNetworkTap(net)}
+                    disabled={!!connecting}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50 disabled:opacity-60"
+                  >
+                    <Wifi className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{net.ssid}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {net.security === "open" ? "Open" : net.security.toUpperCase()}
+                      </span>
+                    </span>
+                    {isConnecting ? (
+                      <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                    ) : net.connected ? (
+                      <Check className="size-4 shrink-0 text-member-green" />
+                    ) : (
+                      <SignalBars signal={net.signal} />
+                    )}
+                  </button>
+                </li>
+              )
+            })
+          )}
+        </ul>
+      </BottomSheet>
+
+      {/* Password entry */}
+      <BottomSheet
+        open={!!passwordFor}
+        onClose={() => { setPasswordFor(null); setConnectError(null) }}
+        title={`Connect to ${passwordFor?.ssid ?? ""}`}
+        footer={
+          <button
+            type="button"
+            onClick={() => passwordFor && void doConnect(passwordFor.ssid, password)}
+            disabled={!password.trim() || !!connecting}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+          >
+            {connecting ? <Loader2 className="size-4 animate-spin" /> : null}
+            {connecting ? "Connecting…" : "Connect"}
+          </button>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Enter the password for <span className="font-semibold text-foreground">{passwordFor?.ssid}</span>.
+          </p>
+          <input
+            type="password"
+            autoFocus
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && password.trim() && !connecting && passwordFor) {
+                void doConnect(passwordFor.ssid, password)
+              }
+            }}
+            placeholder="Password"
+            className="w-full rounded-xl border border-border bg-background px-3 py-3 text-sm outline-none transition-colors focus:border-primary"
+          />
+          {connectError ? (
+            <p className="rounded-xl bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">{connectError}</p>
+          ) : null}
+        </div>
+      </BottomSheet>
+    </section>
+  )
+}
+
 // ─── Language & Region ────────────────────────────────────────────────────────
 
 /**
@@ -1186,11 +1403,22 @@ const SUPPORTED_TIMEZONES = [
   { tz: "Pacific/Fiji", label: "Fiji Time" },
 ]
 
-function LanguageRegionSection() {
+const ORIENTATION_OPTIONS: { value: ScreenOrientation; label: string; description: string }[] = [
+  { value: "normal",   label: "Landscape",          description: "Standard horizontal" },
+  { value: "left",     label: "Portrait (left)",    description: "90° counter-clockwise" },
+  { value: "right",    label: "Portrait (right)",   description: "90° clockwise" },
+  { value: "inverted", label: "Landscape (flipped)", description: "Upside-down" },
+]
+
+function LanguageRegionSection({ initialOrientation }: { initialOrientation?: string | null }) {
   const [currentLang, setCurrentLang] = useState<string | null>(null)
   const [currentTz, setCurrentTz] = useState<string | null>(null)
+  const [currentOrientation, setCurrentOrientation] = useState<ScreenOrientation>(
+    (initialOrientation as ScreenOrientation | null | undefined) ?? "normal",
+  )
   const [langSheetOpen, setLangSheetOpen] = useState(false)
   const [tzSheetOpen, setTzSheetOpen] = useState(false)
+  const [orientationSheetOpen, setOrientationSheetOpen] = useState(false)
   const [applying, setApplying] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [langSearch, setLangSearch] = useState("")
@@ -1243,6 +1471,25 @@ function LanguageRegionSection() {
       }
     } catch {
       setToast("Could not apply timezone")
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const applyOrientationSetting = async (rotation: ScreenOrientation) => {
+    setApplying(true)
+    setOrientationSheetOpen(false)
+    try {
+      const ok = await setOrientation(rotation)
+      if (ok) {
+        setCurrentOrientation(rotation)
+        await patchDeviceState({ orientation: rotation })
+        setToast("Screen rotation updated")
+      } else {
+        setToast("Could not apply rotation — check display connection")
+      }
+    } catch {
+      setToast("Could not apply rotation")
     } finally {
       setApplying(false)
     }
@@ -1301,6 +1548,20 @@ function LanguageRegionSection() {
           label="Time Zone"
           description={activeTz ? activeTz.label : (currentTz ?? "Detecting…")}
           onClick={() => { setTzSearch(""); setTzSheetOpen(true) }}
+          trailing={
+            applying ? (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            ) : (
+              <ChevronRight className="size-4 text-muted-foreground" />
+            )
+          }
+        />
+        {/* Screen orientation */}
+        <ActionRow
+          icon={RotateCcw}
+          label="Screen Orientation"
+          description={ORIENTATION_OPTIONS.find((o) => o.value === currentOrientation)?.label ?? "Landscape"}
+          onClick={() => setOrientationSheetOpen(true)}
           trailing={
             applying ? (
               <Loader2 className="size-4 animate-spin text-muted-foreground" />
@@ -1406,6 +1667,38 @@ function LanguageRegionSection() {
           on the kiosk OS
         </p>
       </BottomSheet>
+
+      {/* Orientation picker sheet */}
+      <BottomSheet open={orientationSheetOpen} onClose={() => setOrientationSheetOpen(false)} title="Screen Orientation">
+        <ul className="divide-y divide-border/60 overflow-hidden rounded-2xl bg-background">
+          {ORIENTATION_OPTIONS.map((opt) => {
+            const active = opt.value === currentOrientation
+            return (
+              <li key={opt.value}>
+                <button
+                  type="button"
+                  onClick={() => void applyOrientationSetting(opt.value)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/50"
+                >
+                  <RotateCcw className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{opt.label}</span>
+                    <span className="block text-xs text-muted-foreground">{opt.description}</span>
+                  </span>
+                  {active ? (
+                    <Check className="size-4 shrink-0 text-member-green" />
+                  ) : (
+                    <span className="w-4" />
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+        <p className="mt-3 text-center text-[11px] text-muted-foreground">
+          Runs <span className="font-mono">xrandr --rotate</span> on the kiosk OS
+        </p>
+      </BottomSheet>
     </section>
   )
 }
@@ -1413,7 +1706,7 @@ function LanguageRegionSection() {
 export function SettingsView() {
   const { clearNotifications, can } = useStore()
   const { signOut } = useAuth()
-  const { state: kioskState, unpair } = useKiosk()
+  const { state: kioskState, deviceState, unpair } = useKiosk()
   const [confirm, setConfirm] = useState<null | "signout" | "clear" | "reset" | "delete" | "unpair">(null)
   const [factoryResetOpen, setFactoryResetOpen] = useState(false)
 
@@ -1489,8 +1782,11 @@ export function SettingsView() {
         <AppearanceControl />
       </section>
 
+      {/* WiFi */}
+      <WifiSection />
+
       {/* Language & Region — OS level */}
-      <LanguageRegionSection />
+      <LanguageRegionSection initialOrientation={deviceState.orientation} />
 
       {/* Hub actions */}
       <HubActionsSection />
