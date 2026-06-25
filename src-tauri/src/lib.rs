@@ -105,8 +105,9 @@ async fn wifi_scan() -> Result<Vec<WifiNetwork>, String> {
     let output = match output {
         Ok(o) => o,
         Err(_) => {
-            // nmcli not available — return empty so the frontend uses its mock.
-            return Ok(Vec::new());
+            // nmcli not available (e.g. macOS dev machine) — return mock networks
+            // so the wizard flow is exercisable without a real kiosk device.
+            return Ok(dev_mock_networks());
         }
     };
 
@@ -122,6 +123,19 @@ async fn wifi_scan() -> Result<Vec<WifiNetwork>, String> {
     networks.sort_by(|a, b| b.signal.cmp(&a.signal));
 
     Ok(networks)
+}
+
+/// Mock network list returned when nmcli is unavailable (dev / macOS).
+/// Mirrors the mock data in `src/lib/wifi-service.ts` so the wizard is
+/// fully exercisable without a real kiosk device.
+fn dev_mock_networks() -> Vec<WifiNetwork> {
+    vec![
+        WifiNetwork { ssid: "Lumora Home".into(),     signal: 92, security: "wpa".into(), connected: false },
+        WifiNetwork { ssid: "Living Room 5G".into(),  signal: 78, security: "wpa".into(), connected: false },
+        WifiNetwork { ssid: "Pek Family".into(),      signal: 64, security: "wpa".into(), connected: false },
+        WifiNetwork { ssid: "Guest Network".into(),   signal: 51, security: "open".into(), connected: false },
+        WifiNetwork { ssid: "Neighbor_2.4".into(),    signal: 28, security: "wep".into(), connected: false },
+    ]
 }
 
 /// Connect to a WiFi network via `nmcli dev wifi connect`.
@@ -149,8 +163,13 @@ async fn wifi_connect(ssid: String, password: Option<String>) -> Result<bool, St
         cmd.output()
     })
     .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))?
-    .map_err(|e| format!("Failed to invoke nmcli: {e}"))?;
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+
+    // nmcli not available (dev / macOS) — simulate success.
+    let output = match output {
+        Ok(o) => o,
+        Err(_) => return Ok(true),
+    };
 
     if output.status.success() {
         // Verify the connection actually came up by checking device status.
