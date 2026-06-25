@@ -92,6 +92,7 @@ export function KioskProvider({ children }: { children: ReactNode }) {
     language: null,
     timezone: null,
     deviceName: null,
+    orientation: null,
   })
   const [phase, setPhase] = useState<KioskPhase>("splash")
   const [loading, setLoading] = useState(true)
@@ -188,6 +189,7 @@ export function KioskProvider({ children }: { children: ReactNode }) {
           language: values.language,
           timezone: values.timezone,
           deviceName: values.deviceName,
+          orientation: values.orientation,
         })
         setDeviceState(nextLocal)
         setupCompleteRef.current = true

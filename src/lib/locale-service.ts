@@ -32,6 +32,8 @@ export type LocaleResult = {
   raw: string
 }
 
+export type ScreenOrientation = "normal" | "left" | "right" | "inverted"
+
 export type TimezoneResult = {
   /** IANA timezone identifier, e.g. "America/New_York". */
   timezone: string
@@ -192,21 +194,43 @@ export async function setTimezone(timezone: string): Promise<boolean> {
   return true
 }
 
+// ─── Orientation ──────────────────────────────────────────────────────────────
+
+/**
+ * Rotate the physical display via xrandr (Tauri) or a simulated store (dev).
+ *
+ * @param rotation - One of "normal" | "left" | "right" | "inverted".
+ * @returns true on success.
+ */
+export async function setOrientation(rotation: ScreenOrientation): Promise<boolean> {
+  if (isTauri()) {
+    try {
+      await invoke<void>("screen_orientation_set", { rotation })
+      return true
+    } catch (err) {
+      console.error("[locale-service] setOrientation failed:", err)
+      return false
+    }
+  }
+  await new Promise((r) => setTimeout(r, 400))
+  return true
+}
+
 // ─── Combined apply (used by setup wizard finish) ─────────────────────────────
 
 /**
- * Apply both language and timezone in parallel.  Call this on wizard
- * completion so the OS is configured before the kiosk state is persisted.
- *
- * @returns An object indicating whether each operation succeeded.
+ * Apply language, timezone, and (optionally) screen orientation in parallel.
+ * Call this on wizard completion so the OS is configured before state persists.
  */
 export async function applyLocaleSettings(params: {
   language: string
   timezone: string
-}): Promise<{ languageOk: boolean; timezoneOk: boolean }> {
-  const [languageOk, timezoneOk] = await Promise.all([
+  orientation?: ScreenOrientation
+}): Promise<{ languageOk: boolean; timezoneOk: boolean; orientationOk: boolean }> {
+  const [languageOk, timezoneOk, orientationOk] = await Promise.all([
     setLanguage(params.language),
     setTimezone(params.timezone),
+    params.orientation ? setOrientation(params.orientation) : Promise.resolve(true),
   ])
-  return { languageOk, timezoneOk }
+  return { languageOk, timezoneOk, orientationOk }
 }

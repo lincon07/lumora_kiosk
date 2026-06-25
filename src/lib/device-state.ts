@@ -32,6 +32,8 @@ export type DeviceState = {
   timezone: string | null
   /** Human-friendly device name shown in the household, e.g. "Kitchen Hub". */
   deviceName: string | null
+  /** xrandr rotation applied on boot: "normal" | "left" | "right" | "inverted". */
+  orientation: string | null
 }
 
 export const DEFAULT_DEVICE_STATE: DeviceState = {
@@ -39,6 +41,7 @@ export const DEFAULT_DEVICE_STATE: DeviceState = {
   language: null,
   timezone: null,
   deviceName: null,
+  orientation: null,
 }
 
 const STORE_FILE = "device-state.json"
@@ -104,6 +107,7 @@ function normalize(value: unknown): DeviceState {
     language: v.language ?? null,
     timezone: v.timezone ?? null,
     deviceName: v.deviceName ?? null,
+    orientation: v.orientation ?? null,
   }
 }
 

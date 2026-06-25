@@ -10,23 +10,33 @@ import {
   Check,
   ChevronLeft,
   Loader2,
+  RotateCcw,
 } from "lucide-react"
 import { WifiStep } from "./wifi-step"
-import { applyLocaleSettings } from "@/lib/locale-service"
+import { applyLocaleSettings, type ScreenOrientation } from "@/lib/locale-service"
 
 export type SetupValues = {
   language: string
   timezone: string
   deviceName: string
+  orientation: ScreenOrientation
 }
 
-type StepId = "language" | "wifi" | "timezone" | "name"
+type StepId = "language" | "wifi" | "timezone" | "orientation" | "name"
 
 const STEPS: { id: StepId; title: string; subtitle: string; icon: typeof Wifi }[] = [
   { id: "language", title: "Choose your language", subtitle: "Select the language for this hub.", icon: Languages },
   { id: "wifi", title: "Connect to WiFi", subtitle: "Get your hub online.", icon: Wifi },
   { id: "timezone", title: "Set your time zone", subtitle: "So schedules show the right time.", icon: Clock },
+  { id: "orientation", title: "Screen orientation", subtitle: "Choose how this screen is mounted.", icon: RotateCcw },
   { id: "name", title: "Name this hub", subtitle: "Pick a name your family will recognize.", icon: Tag },
+]
+
+const ORIENTATIONS: { value: ScreenOrientation; label: string; description: string; rotate: string }[] = [
+  { value: "normal",   label: "Landscape",         description: "Standard horizontal mount",  rotate: "rotate-0"    },
+  { value: "left",     label: "Portrait (left)",   description: "Rotated 90° counter-clockwise", rotate: "-rotate-90" },
+  { value: "right",    label: "Portrait (right)",  description: "Rotated 90° clockwise",      rotate: "rotate-90"  },
+  { value: "inverted", label: "Landscape (flipped)", description: "Upside-down horizontal mount", rotate: "rotate-180" },
 ]
 
 const LANGUAGES = [
@@ -124,6 +134,9 @@ export function SetupWizard({
   const [language, setLanguage] = useState(defaults.language ?? "en-US")
   const [connectedSsid, setConnectedSsid] = useState<string | null>(null)
   const [timezone, setTimezone] = useState(defaults.timezone ?? detected ?? "America/New_York")
+  const [orientation, setOrientation] = useState<ScreenOrientation>(
+    (defaults.orientation as ScreenOrientation | undefined) ?? "normal",
+  )
   const [deviceName, setDeviceName] = useState(defaults.deviceName ?? "")
 
   const isLast = stepIdx === STEPS.length - 1
@@ -134,10 +147,10 @@ export function SetupWizard({
       // Apply language and timezone to the OS before persisting setup values.
       // Errors are non-fatal — the wizard completes either way; the caller can
       // surface locale apply failures through saveError if needed.
-      await applyLocaleSettings({ language, timezone }).catch((err) => {
+      await applyLocaleSettings({ language, timezone, orientation }).catch((err) => {
         console.error("[setup-wizard] applyLocaleSettings failed:", err)
       })
-      onComplete({ language, timezone, deviceName: deviceName.trim() })
+      onComplete({ language, timezone, orientation, deviceName: deviceName.trim() })
       return
     }
     setStepIdx((i) => Math.min(i + 1, STEPS.length - 1))
@@ -230,6 +243,35 @@ export function SetupWizard({
                       </span>
                     </span>
                     {active ? <Check className="size-5 shrink-0 text-primary" /> : null}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+
+          {step.id === "orientation" ? (
+            <div className="grid flex-1 grid-cols-2 content-start gap-3">
+              {ORIENTATIONS.map((o) => {
+                const active = o.value === orientation
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => setOrientation(o.value)}
+                    aria-pressed={active}
+                    className={`flex items-center justify-between rounded-2xl border px-5 py-4 text-left transition-colors ${
+                      active
+                        ? "border-primary bg-primary/5"
+                        : "border-border bg-card hover:bg-muted"
+                    }`}
+                  >
+                    <span>
+                      <span className="block text-lg font-semibold">{o.label}</span>
+                      <span className="block text-sm text-muted-foreground">{o.description}</span>
+                    </span>
+                    <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${active ? "text-primary" : "text-muted-foreground"}`}>
+                      <RotateCcw className={`size-5 ${o.rotate}`} />
+                    </span>
                   </button>
                 )
               })}

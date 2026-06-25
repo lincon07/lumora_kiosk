@@ -73,6 +73,7 @@ function KioskGate() {
           language: deviceState.language ?? undefined,
           timezone: deviceState.timezone ?? undefined,
           deviceName: deviceState.deviceName ?? undefined,
+          orientation: (deviceState.orientation as "normal" | "left" | "right" | "inverted" | undefined) ?? undefined,
         }}
         saving={savingSetup}
         saveError={setupError}
