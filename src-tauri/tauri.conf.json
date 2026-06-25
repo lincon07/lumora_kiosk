@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "lumora_ios",
+  "productName": "lumora_kiosk",
   "version": "0.1.7",
-  "identifier": "com.lincolnpek.lumoraios",
+  "identifier": "com.peakl.lumora-kiosk",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1422",
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "lumora_ios",
-        "width": 800,
-        "height": 600
+        "title": "lumora_kiosk",
+        "fullscreen": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": true
       }
     ],
     "security": {
