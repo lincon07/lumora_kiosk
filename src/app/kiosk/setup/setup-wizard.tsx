@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { WifiStep } from "./wifi-step"
 import { applyLocaleSettings, type ScreenOrientation } from "@/lib/locale-service"
+import { SystemStatusBar } from "@/components/ui/reusables/system-status-bar"
 
 export type SetupValues = {
   language: string
@@ -159,6 +160,9 @@ export function SetupWizard({
 
   return (
     <main className="flex min-h-dvh flex-col bg-background text-foreground">
+      {/* System status bar — always-visible WiFi / clock strip */}
+      <SystemStatusBar />
+
       {/* Header */}
       <header className="flex items-center justify-between px-10 py-7">
         <div className="flex items-center gap-3">
