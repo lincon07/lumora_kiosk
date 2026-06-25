@@ -528,6 +528,49 @@ async fn factory_reset(app: tauri::AppHandle) -> Result<(), String> {
     std::process::exit(0);
 }
 
+/// Set the physical screen rotation via xrandr.
+///
+/// Detects the first connected display output at runtime so this works
+/// regardless of whether the Pi is connected via HDMI-1, HDMI-2, etc.
+/// Rotation must be one of: "normal" | "left" | "right" | "inverted".
+#[tauri::command]
+async fn screen_orientation_set(rotation: String) -> Result<(), String> {
+    let valid = ["normal", "left", "right", "inverted"];
+    if !valid.contains(&rotation.as_str()) {
+        return Err(format!("Invalid rotation value: {rotation}"));
+    }
+    tokio::task::spawn_blocking(move || {
+        // Detect the first connected output (e.g. "HDMI-1", "DSI-1").
+        let probe = Command::new("xrandr").output().unwrap_or_else(|_| {
+            std::process::Output {
+                status: std::process::ExitStatus::default(),
+                stdout: b"HDMI-1 connected".to_vec(),
+                stderr: vec![],
+            }
+        });
+        let xrandr_text = String::from_utf8_lossy(&probe.stdout);
+        let display = xrandr_text
+            .lines()
+            .find(|l| l.contains(" connected"))
+            .and_then(|l| l.split_whitespace().next())
+            .unwrap_or("HDMI-1")
+            .to_string();
+
+        let result = Command::new("xrandr")
+            .args(["--output", &display, "--rotate", &rotation])
+            .output()
+            .map_err(|e| format!("xrandr failed: {e}"))?;
+
+        if result.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&result.stderr).trim().to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn get_utc_offset_string(timezone: &str) -> String {
     // Use the `date` command for a reliable, dependency-free offset string.
     let output = Command::new("date")
@@ -568,6 +611,7 @@ pub fn run() {
             locale_set,
             timezone_get,
             timezone_set,
+            screen_orientation_set,
             factory_reset,
         ])
         .run(tauri::generate_context!())
