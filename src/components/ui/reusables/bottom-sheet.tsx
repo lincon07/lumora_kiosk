@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -18,14 +18,33 @@ export function BottomSheet({
   children: ReactNode
   footer?: ReactNode
 }) {
-  // Dismiss the on-screen keyboard before closing so the layout viewport
-  // restores and the sticky bottom nav settles back to the bottom.
+  const [visible, setVisible] = useState(false)
+  const [animating, setAnimating] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Portal mount guard
+  useEffect(() => { setMounted(true) }, [])
+
+  // Drive open/close animation
+  useEffect(() => {
+    if (open) {
+      setVisible(true)
+      // Tiny delay so the element is in the DOM before we trigger the CSS transition
+      requestAnimationFrame(() => requestAnimationFrame(() => setAnimating(true)))
+    } else {
+      setAnimating(false)
+      closeTimerRef.current = setTimeout(() => setVisible(false), 300)
+    }
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    }
+  }, [open])
+
   const requestClose = useCallback(() => {
     const active = document.activeElement as HTMLElement | null
     if (active && typeof active.blur === "function") active.blur()
     onClose()
-    // After the virtual keyboard collapses, snap the page back into place.
-    requestAnimationFrame(() => window.scrollTo({ top: window.scrollY }))
   }, [onClose])
 
   useEffect(() => {
@@ -39,42 +58,57 @@ export function BottomSheet({
     }
   }, [open, requestClose])
 
-  // Ensure we have a stable DOM target for the portal (avoids SSR mismatch).
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
-
-  if (!open || !mounted) return null
+  if (!mounted || !visible) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-stretch justify-end">
+      {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/40 animate-in fade-in"
+        className="absolute inset-0 bg-black/40"
+        style={{
+          opacity: animating ? 1 : 0,
+          transition: "opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)",
+        }}
         onClick={requestClose}
         aria-hidden
       />
+
+      {/* Panel */}
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={cn(
-          "relative z-10 w-full max-w-lg rounded-t-3xl bg-card p-5 shadow-xl",
-          "animate-in slide-in-from-bottom-4 duration-200 sm:rounded-3xl",
-        )}
+        className="relative z-10 flex h-full w-full max-w-sm flex-col bg-card shadow-2xl"
+        style={{
+          transform: animating ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 300ms cubic-bezier(0.4, 0, 0.2, 1)",
+          borderRadius: "1.5rem 0 0 1.5rem",
+        }}
       >
-        <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-border sm:hidden" />
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold">{title}</h2>
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
+          <h2 className="text-lg font-bold tracking-tight">{title}</h2>
           <button
             type="button"
             onClick={requestClose}
             aria-label="Close"
-            className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <X className="size-5" />
           </button>
         </div>
-        <div className="space-y-4">{children}</div>
-        {footer ? <div className="mt-6">{footer}</div> : null}
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-5 py-5">
+          <div className="space-y-4">{children}</div>
+        </div>
+
+        {/* Footer */}
+        {footer ? (
+          <div className="shrink-0 border-t border-border px-5 py-4">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>,
     document.body,
