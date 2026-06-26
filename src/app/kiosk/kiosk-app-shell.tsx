@@ -38,18 +38,24 @@ export function KioskAppShell() {
   const head = headers[tab]
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background">
-      {/* System status bar — WiFi, date, clock */}
+    {/* h-dvh + overflow-hidden pins the shell to the viewport so only the
+        content area scrolls — sidebar, header and status bar stay static. */}
+    <div className="flex h-dvh flex-col overflow-hidden bg-background">
+      {/* System status bar — WiFi, date, clock — always visible at top */}
       <SystemStatusBar />
 
+      {/* flex-1 + overflow-hidden so this row fills remaining height exactly */}
       <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar — fixed height, no scroll */}
         <SideNav active={tab} onChange={setTab} />
 
+        {/* Right panel: header + optional chips + scrollable content */}
         <div className="flex flex-1 flex-col overflow-hidden">
           <HeaderNav title={head.title} subtitle={head.subtitle} />
           {head.showMembers ? <MemberChips /> : null}
 
-          <main className="flex-1 overflow-auto">
+          {/* Only this element scrolls — overflow-y-auto, never x */}
+          <main className="flex-1 overflow-y-auto overflow-x-hidden">
             {loading && tab !== "settings" ? (
               <div className="flex items-center justify-center py-24">
                 <Loader2 className="size-6 animate-spin text-muted-foreground" />
