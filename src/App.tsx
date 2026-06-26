@@ -89,7 +89,11 @@ function App() {
   // Kiosk builds run the device-pairing experience (no user login). The mobile
   // app build runs the normal authenticated flow.
   if (kioskConfig.enabled) {
-    return <KioskRoot />
+    return (
+      <AuthProvider>
+        <KioskRoot />
+      </AuthProvider>
+    )
   }
 
   return (

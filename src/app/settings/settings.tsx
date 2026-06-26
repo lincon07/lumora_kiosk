@@ -57,7 +57,7 @@ import { ConfirmDialog } from "@/components/ui/reusables/confirm-dialog"
 import { BottomSheet } from "@/components/ui/reusables/bottom-sheet"
 import { QrCode } from "@/components/ui/reusables/qr-code"
 import { useStore } from "@/lib/store"
-import { useAuth } from "@/lib/auth"
+import { useOptionalAuth } from "@/lib/auth"
 import { kioskConfig } from "@/lib/kiosk"
 import { useKiosk } from "@/lib/kiosk-provider"
 import { type Invite } from "@/lib/api"
@@ -512,7 +512,8 @@ function MemberSheet({
   onInvite?: () => void
 }) {
   const { addMember, updateMember } = useStore()
-  const { user } = useAuth()
+  const auth = useOptionalAuth()
+  const user = auth?.user ?? null
   const [draft, setDraft] = useState<MemberDraft>(() => toDraft(member))
 
   // Re-seed the form whenever a different member (or add mode) opens.
@@ -1705,7 +1706,8 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
 
 export function SettingsView() {
   const { clearNotifications, can } = useStore()
-  const { signOut } = useAuth()
+  const authCtx = useOptionalAuth()
+  const signOut = authCtx?.signOut ?? (async () => {})
   const { state: kioskState, deviceState, unpair } = useKiosk()
   const [confirm, setConfirm] = useState<null | "signout" | "clear" | "reset" | "delete" | "unpair">(null)
   const [factoryResetOpen, setFactoryResetOpen] = useState(false)
