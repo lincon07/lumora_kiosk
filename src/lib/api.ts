@@ -179,6 +179,8 @@ export interface LumoraApi {
   // photos
   listPhotos(): Promise<Photo[]>
   createPhoto(input: Omit<Photo, "id">): Promise<Photo>
+  /** Multipart upload — sends the raw File to POST /photos on the local server. */
+  uploadPhoto(file: File, caption?: string): Promise<Photo>
   deletePhoto(id: string): Promise<void>
 }
 
@@ -211,7 +213,7 @@ const MUTATING_METHODS = new Set<keyof LumoraApi>([
   "createMeal", "updateMeal", "deleteMeal",
   "createNotification", "updateNotification", "deleteNotification",
   "markAllNotificationsRead", "clearNotifications",
-  "createPhoto", "deletePhoto",
+  "createPhoto", "uploadPhoto", "deletePhoto",
 ])
 
 function withMutationGuard(adapter: LumoraApi): LumoraApi {
