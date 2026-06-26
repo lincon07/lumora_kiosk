@@ -84,15 +84,26 @@ function getDeviceToken(): string | null {
 }
 const REFRESH_KEY = "lumora.refresh"
 
+type TokenListener = () => void
+const tokenListeners = new Set<TokenListener>()
+
 export const tokenStore = {
   get(): string | null {
     try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
   },
   set(token: string) {
-    try { localStorage.setItem(TOKEN_KEY, token) } catch { /* ignore */ }
+    try {
+      localStorage.setItem(TOKEN_KEY, token)
+      tokenListeners.forEach((fn) => fn())
+    } catch { /* ignore */ }
   },
   clear() {
     try { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(REFRESH_KEY) } catch { /* ignore */ }
+  },
+  /** Subscribe to token changes. Returns an unsubscribe function. */
+  subscribe(fn: TokenListener): () => void {
+    tokenListeners.add(fn)
+    return () => tokenListeners.delete(fn)
   },
   getRefresh(): string | null {
     try { return localStorage.getItem(REFRESH_KEY) } catch { return null }
