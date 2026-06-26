@@ -46,7 +46,7 @@ snapshotRouter.get("/", requireAuth, (req, res) => {
     .all(hid)
 
   const lists = db
-    .prepare("SELECT * FROM lists WHERE household_id = ? ORDER BY position ASC, created_at ASC")
+    .prepare("SELECT * FROM lists WHERE household_id = ? ORDER BY created_at ASC")
     .all(hid)
 
   const list_items = db
@@ -54,7 +54,7 @@ snapshotRouter.get("/", requireAuth, (req, res) => {
       `SELECT li.* FROM list_items li
        JOIN lists l ON l.id = li.list_id
        WHERE l.household_id = ?
-       ORDER BY li.position ASC`,
+       ORDER BY li.created_at ASC`,
     )
     .all(hid)
 
