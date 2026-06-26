@@ -1,0 +1,221 @@
+-- Lumora local SQLite schema
+-- Mirrors the Supabase Postgres schema exactly; all ids are UUIDs stored as TEXT.
+-- Run once at server start via migrate.ts — idempotent (CREATE TABLE IF NOT EXISTS).
+
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+
+-- ---------------------------------------------------------------------------
+-- households
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS households (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- ---------------------------------------------------------------------------
+-- users  (local accounts — email + bcrypt hash, no Supabase)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  household_id  TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name          TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_household ON users(household_id);
+CREATE INDEX IF NOT EXISTS idx_users_email     ON users(email);
+
+-- ---------------------------------------------------------------------------
+-- members  (household roster — may or may not be linked to a user account)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS members (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  user_id      TEXT REFERENCES users(id) ON DELETE SET NULL,
+  name         TEXT NOT NULL,
+  initial      TEXT NOT NULL DEFAULT '',
+  color        TEXT NOT NULL DEFAULT 'blue',
+  role         TEXT NOT NULL DEFAULT 'adult',
+  dob          TEXT,
+  account      TEXT,       -- display email for linked account
+  permissions  TEXT NOT NULL DEFAULT '[]',  -- JSON array of PermissionArea
+  pending      INTEGER NOT NULL DEFAULT 0,  -- 1 = outstanding invite
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_members_household ON members(household_id);
+CREATE INDEX IF NOT EXISTS idx_members_user      ON members(user_id);
+
+-- ---------------------------------------------------------------------------
+-- invites
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS invites (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  member_id    TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  token        TEXT NOT NULL UNIQUE,
+  code         TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  role         TEXT NOT NULL,
+  color        TEXT NOT NULL DEFAULT 'blue',
+  dob          TEXT,
+  email        TEXT,
+  expires_at   TEXT NOT NULL,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_invites_household  ON invites(household_id);
+CREATE INDEX IF NOT EXISTS idx_invites_token      ON invites(token);
+CREATE INDEX IF NOT EXISTS idx_invites_code       ON invites(code);
+
+-- ---------------------------------------------------------------------------
+-- calendars
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS calendars (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  color        TEXT NOT NULL DEFAULT 'blue',
+  member_ids   TEXT NOT NULL DEFAULT '[]',  -- JSON array of member ids
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendars_household ON calendars(household_id);
+
+-- ---------------------------------------------------------------------------
+-- events
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS events (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  calendar_id  TEXT REFERENCES calendars(id) ON DELETE SET NULL,
+  title        TEXT NOT NULL,
+  date         TEXT NOT NULL,   -- ISO date yyyy-mm-dd
+  time         TEXT,            -- HH:MM or empty
+  start_hour   REAL NOT NULL DEFAULT 0,
+  end_hour     REAL NOT NULL DEFAULT 0,
+  member_ids   TEXT NOT NULL DEFAULT '[]',
+  location     TEXT,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_household ON events(household_id);
+CREATE INDEX IF NOT EXISTS idx_events_date      ON events(date);
+
+-- ---------------------------------------------------------------------------
+-- chores
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chores (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  member_id    TEXT REFERENCES members(id) ON DELETE SET NULL,
+  title        TEXT NOT NULL,
+  done         INTEGER NOT NULL DEFAULT 0,
+  points       INTEGER NOT NULL DEFAULT 0,
+  due          TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_chores_household ON chores(household_id);
+
+-- ---------------------------------------------------------------------------
+-- lists
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS lists (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  title        TEXT NOT NULL,
+  color        TEXT NOT NULL DEFAULT 'blue',
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_lists_household ON lists(household_id);
+
+-- ---------------------------------------------------------------------------
+-- list_items
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS list_items (
+  id         TEXT PRIMARY KEY,
+  list_id    TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  label      TEXT NOT NULL,
+  done       INTEGER NOT NULL DEFAULT 0,
+  position   INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_list_items_list ON list_items(list_id);
+
+-- ---------------------------------------------------------------------------
+-- meals
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS meals (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  member_id    TEXT REFERENCES members(id) ON DELETE SET NULL,
+  day          TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  type         TEXT NOT NULL DEFAULT 'dinner',
+  image        TEXT,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_meals_household ON meals(household_id);
+
+-- ---------------------------------------------------------------------------
+-- notifications  (household-scoped; content shared across all members)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notifications (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  member_id    TEXT REFERENCES members(id) ON DELETE SET NULL,
+  title        TEXT NOT NULL,
+  body         TEXT NOT NULL DEFAULT '',
+  time         TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_household ON notifications(household_id);
+
+-- ---------------------------------------------------------------------------
+-- notification_states  (per-user read/dismiss state)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notification_states (
+  notification_id TEXT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  read            INTEGER NOT NULL DEFAULT 0,
+  dismissed       INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (notification_id, user_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- photos
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS photos (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  filename     TEXT NOT NULL,        -- basename stored under $HOME/.lumora/photos/
+  src          TEXT NOT NULL,        -- relative URL served by the API, e.g. /photos/<id>
+  caption      TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_photos_household ON photos(household_id);
+
+-- ---------------------------------------------------------------------------
+-- kiosk_devices  (devices (tablets/phones) that have paired with this hub)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS kiosk_devices (
+  id           TEXT PRIMARY KEY,
+  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL DEFAULT 'Lumora Hub',
+  device_token TEXT NOT NULL UNIQUE,  -- random secret given at pairing
+  last_seen    TEXT,
+  online       INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_kiosk_devices_household ON kiosk_devices(household_id);
