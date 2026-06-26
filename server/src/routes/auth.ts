@@ -151,8 +151,30 @@ router.post("/refresh", (req: Request, res: Response) => {
 // GET /auth/session  (and /auth/me — client alias)
 // ---------------------------------------------------------------------------
 router.get(["/session", "/me"], requireAuth, (req: Request, res: Response) => {
-  const { sub, householdId, email, name } = (req as AuthRequest).user
+  const { sub, householdId, email, name, role } = (req as AuthRequest).user
   const db = getDb()
+
+  // Kiosk device tokens have role "kiosk". Return a lightweight device
+  // session so the client doesn't get a 404 on an unpaired device.
+  if (role === "kiosk") {
+    const device = db
+      .prepare("SELECT id, device_name, household_id FROM kiosk_devices WHERE id = ?")
+      .get(sub) as { id: string; device_name: string; household_id: string | null } | undefined
+
+    const household = device?.household_id
+      ? (db.prepare("SELECT id, name FROM households WHERE id = ?").get(device.household_id) as
+          | { id: string; name: string }
+          | undefined)
+      : undefined
+
+    res.json({
+      user: { id: sub, email: null, name: device?.device_name ?? name ?? "Kiosk" },
+      household: household ?? null,
+      isKiosk: true,
+    })
+    return
+  }
+
   const household = db
     .prepare("SELECT id, name FROM households WHERE id = ?")
     .get(householdId) as { id: string; name: string } | undefined
