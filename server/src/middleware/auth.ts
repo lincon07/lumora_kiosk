@@ -107,9 +107,9 @@ export function socketAuth(
   try {
     const payload = verifyToken(token)
     socket.data.userId = payload.sub
-    socket.data.householdId = payload.householdId
-    socket.data.email = payload.email
-    socket.data.name = payload.name
+    socket.data.householdId = payload.householdId ?? ""
+    socket.data.email = payload.email ?? ""
+    socket.data.name = payload.name ?? ""
     next()
   } catch (err) {
     const msg = err instanceof jwt.TokenExpiredError ? "EXPIRED" : "UNAUTHORIZED"

@@ -25,6 +25,6 @@ export function broadcast<E extends keyof ServerToClientEvents>(
 ): void {
   if (!_io) return
   const room = `household:${householdId}`
-  // @ts-expect-error — variadic emit args; Socket.IO types need explicit cast
-  _io.to(room).emit(event, ...args)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ;(_io.to(room) as any).emit(event, ...args)
 }

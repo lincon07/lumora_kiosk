@@ -17,7 +17,14 @@ export const snapshotRouter = Router()
 
 snapshotRouter.get("/", requireAuth, (req, res) => {
   const db = getDb()
-  const hid = req.user!.householdId
+  const hid = (req as import("../middleware/auth").AuthRequest).user.householdId
+
+  // Kiosk device tokens have no householdId until the device is claimed.
+  if (!hid) {
+    res.json({ members: [], calendars: [], events: [], chores: [], lists: [],
+      list_items: [], meals: [], notifications: [], photos: [] })
+    return
+  }
 
   const members = db
     .prepare("SELECT * FROM members WHERE household_id = ? ORDER BY created_at ASC")
