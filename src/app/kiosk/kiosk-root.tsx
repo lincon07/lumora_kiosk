@@ -8,6 +8,7 @@ import { KioskAppShell } from "./kiosk-app-shell"
 import { SplashScreen } from "./splash-screen"
 import { RegisteringScreen } from "./registering-screen"
 import { SetupWizard } from "./setup/setup-wizard"
+import { SystemStatusBar } from "@/components/ui/reusables/system-status-bar"
 
 /**
  * Root for the kiosk experience (a wall-mounted family display).
@@ -34,21 +35,24 @@ function KioskGate() {
   // Hard failure talking to the backend (e.g. RPC not deployed).
   if (initError) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background px-8 text-center">
-        <WifiOff className="size-10 text-muted-foreground" />
-        <div>
-          <p className="text-lg font-semibold text-foreground">Could not connect</p>
-          <p className="mt-1 text-sm text-muted-foreground text-pretty max-w-xs">
-            {initError}
-          </p>
+      <div className="flex min-h-dvh flex-col bg-background">
+        <SystemStatusBar />
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
+          <WifiOff className="size-10 text-muted-foreground" />
+          <div>
+            <p className="text-lg font-semibold text-foreground">Could not connect</p>
+            <p className="mt-1 max-w-xs text-pretty text-sm text-muted-foreground">
+              {initError}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+          >
+            Retry
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
-        >
-          Retry
-        </button>
       </div>
     )
   }

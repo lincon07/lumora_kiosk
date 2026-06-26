@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react"
 import {
+  ensureRegistered,
   fetchKioskState,
   saveSetup,
   sendHeartbeat,
@@ -24,53 +25,43 @@ import {
   patchDeviceState,
   type DeviceState,
 } from "./device-state"
-import { registerDevice, isDeviceRegistered } from "./registration-service"
 import type { SetupValues } from "@/app/kiosk/setup/setup-wizard"
 
 /**
- * The phases of the kiosk startup flow, in order:
- *   splash      – loading local device state on boot
- *   registering – enrolling with Lumora Cloud (step 2); may surface a retry
- *   setup       – running the setup wizard (step 3)
- *   pairing     – waiting to be claimed by a household (step 4)
- *   ready       – registered + set up + claimed; show the Home dashboard
+ * Kiosk startup phases:
+ *
+ *   splash      – loading local device state on boot (brief)
+ *   setup       – setup wizard: language, wifi, timezone, name (first run)
+ *   registering – enrolling device with the local server to get a pairing code
+ *   pairing     – QR / code shown; waiting for a household member to claim
+ *   ready       – claimed and set up; show the home dashboard
+ *
+ * Key design principle: the local Express server is optional during the setup
+ * wizard. We only need it once the user taps "Finish setup". That way the
+ * kiosk UI still loads even if the server hasn't fully started yet.
  */
-export type KioskPhase = "splash" | "registering" | "setup" | "pairing" | "ready"
+export type KioskPhase = "splash" | "setup" | "registering" | "pairing" | "ready"
 
 type KioskContextValue = {
-  /** Current pairing/claim state for this device. */
   state: KioskState
-  /** Locally-persisted device state object (setup, language, timezone, name). */
   deviceState: DeviceState
-  /** Which screen of the startup flow to show. */
   phase: KioskPhase
-  /** True until the first state resolves on launch. */
   loading: boolean
-  /** Set when registration fails — drives the retry screen. */
   registrationError: string | null
-  /** Set when state fetch/setup hits a hard error (e.g. RPC not deployed). */
   initError: string | null
-  /** True while the setup wizard values are being persisted. */
   savingSetup: boolean
-  /** Error from persisting setup, surfaced inside the wizard. */
   setupError: string | null
-  /** Retry Lumora Cloud registration after a failure. */
   retryRegistration: () => Promise<void>
-  /** Persist setup values (local + cloud) and advance the flow. */
   completeSetup: (values: SetupValues) => Promise<void>
-  /** Re-poll the claim state immediately. */
   refresh: () => Promise<void>
-  /** Detach this kiosk from its household; a fresh pairing code is issued. */
   unpair: () => Promise<void>
 }
 
 const KioskContext = createContext<KioskContextValue | null>(null)
 
-// How often to poll claim-state while UNPAIRED (waiting for a family member to
-// scan). Kept brisk so pairing feels instant.
-const PAIR_POLL_MS = 3000
-// How often to send a heartbeat once paired.
-const HEARTBEAT_MS = 30000
+const PAIR_POLL_MS    = 3_000
+const HEARTBEAT_MS    = 30_000
+const REGISTER_TIMEOUT_MS = 8_000
 
 const INITIAL_STATE: KioskState = {
   found: false,
@@ -85,30 +76,42 @@ const INITIAL_STATE: KioskState = {
   timezone: null,
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Wrap a promise with a timeout so it never hangs indefinitely. */
+function withTimeout<T>(promise: Promise<T>, ms: number, msg: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(msg)), ms),
+    ),
+  ])
+}
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
+
 export function KioskProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<KioskState>(INITIAL_STATE)
-  const [deviceState, setDeviceState] = useState<DeviceState>({
-    setupComplete: false,
-    language: null,
-    timezone: null,
-    deviceName: null,
-    orientation: null,
+  const [state, setState]                   = useState<KioskState>(INITIAL_STATE)
+  const [deviceState, setDeviceState]       = useState<DeviceState>({
+    setupComplete: false, language: null, timezone: null, deviceName: null, orientation: null,
   })
-  const [phase, setPhase] = useState<KioskPhase>("splash")
-  const [loading, setLoading] = useState(true)
-  const [initError, setInitError] = useState<string | null>(null)
+  const [phase, setPhase]                   = useState<KioskPhase>("splash")
+  const [loading, setLoading]               = useState(true)
+  const [initError, setInitError]           = useState<string | null>(null)
   const [registrationError, setRegistrationError] = useState<string | null>(null)
-  const [savingSetup, setSavingSetup] = useState(false)
-  const [setupError, setSetupError] = useState<string | null>(null)
+  const [savingSetup, setSavingSetup]       = useState(false)
+  const [setupError, setSetupError]         = useState<string | null>(null)
 
-  // Tracks whether the device is currently paired so the polling loop and
-  // Realtime handler can compare before/after to fire push notifications.
-  const pairedRef = useRef(false)
-  // Guards the poll loop — it must not start until registration resolves.
-  const registeredRef = useRef(false)
-  // Local setup-complete flag the gate trusts even before the network responds.
-  const setupCompleteRef = useRef(false)
+  const pairedRef    = useRef(false)
+  const readyRef     = useRef(false)   // true once registration+pairing loop can start
 
+  // ------------------------------------------------------------------
+  // refresh — poll kiosk state from the local server
+  // ------------------------------------------------------------------
   const refresh = useCallback(async () => {
     try {
       const prev = pairedRef.current
@@ -116,19 +119,14 @@ export function KioskProvider({ children }: { children: ReactNode }) {
       pairedRef.current = next.paired
       setState(next)
 
-      // Fire a push notification on state transitions.
       if (!prev && next.paired && next.householdName) {
-        void notify(
-          "Kiosk claimed",
-          `This hub is now connected to ${next.householdName}.`,
-        )
+        void notify("Kiosk claimed", `This hub is now connected to ${next.householdName}.`)
       }
       if (prev && !next.paired) {
         void notify("Kiosk disconnected", "This hub has been unpaired from its household.")
       }
     } catch (err) {
       console.error("[kiosk] fetchKioskState error:", err)
-      // Don't throw — keep last known state so polling can retry
     }
   }, [])
 
@@ -137,180 +135,174 @@ export function KioskProvider({ children }: { children: ReactNode }) {
     await refresh()
   }, [refresh])
 
-  /**
-   * Step 2 — register with Lumora Cloud (MDM) via the Device Registration
-   * service. Idempotent. Resolves to true on success. On failure it surfaces a
-   * retry screen and resolves false.
-   */
+  // ------------------------------------------------------------------
+  // doRegister — enroll with the local server (idempotent)
+  // ------------------------------------------------------------------
   const doRegister = useCallback(async (deviceName?: string): Promise<boolean> => {
     setRegistrationError(null)
     setPhase("registering")
     try {
-      await registerDevice(deviceName)
-      registeredRef.current = true
+      await withTimeout(
+        ensureRegistered(deviceName),
+        REGISTER_TIMEOUT_MS,
+        "Local server did not respond in time. Make sure lumora-server is running.",
+      )
       return true
     } catch (err) {
       console.error("[kiosk] registration error:", err)
       setRegistrationError(
-        err instanceof Error ? err.message : "Couldn't reach Lumora Cloud.",
+        err instanceof Error ? err.message : "Could not reach the local server.",
       )
       return false
     }
   }, [])
 
-  /** Recompute which startup phase to show from local + server state. */
-  const resolvePhase = useCallback((local: DeviceState, server: KioskState) => {
-    // Trust local OR server for setup completion (whichever knows first).
-    const setupDone = local.setupComplete || server.setupComplete
-    setupCompleteRef.current = setupDone
-    if (!setupDone) {
-      setPhase("setup")
-    } else if (!server.paired) {
-      setPhase("pairing")
-    } else {
-      setPhase("ready")
+  const retryRegistration = useCallback(async () => {
+    const ok = await doRegister(deviceState.deviceName ?? undefined)
+    if (ok) {
+      await refresh()
+      const server = await fetchKioskState()
+      pairedRef.current = server.paired
+      setState(server)
+      if (server.paired) setPhase("ready")
+      else setPhase("pairing")
     }
-  }, [])
+  }, [doRegister, refresh, deviceState.deviceName])
 
-  /**
-   * Step 3 — persist setup values locally (Store + localStorage) and to Lumora
-   * Cloud, then advance. Errors surface inside the wizard so the user can retry
-   * without losing their input.
-   */
+  // ------------------------------------------------------------------
+  // completeSetup — persist locally, sync to server best-effort, advance
+  // ------------------------------------------------------------------
   const completeSetup = useCallback(
     async (values: SetupValues) => {
       setSavingSetup(true)
       setSetupError(null)
+
+      // 1. Persist to local device-state store (Tauri store / localStorage).
+      //    This is the source of truth. If it fails we stop here.
+      let nextLocal: DeviceState
       try {
-        // Persist locally first so the appliance remembers even if the network
-        // write fails — the device-state object is the on-device source of truth.
-        const nextLocal = await patchDeviceState({
+        nextLocal = await patchDeviceState({
           setupComplete: true,
-          language: values.language,
-          timezone: values.timezone,
-          deviceName: values.deviceName,
-          orientation: values.orientation,
+          language:      values.language,
+          timezone:      values.timezone,
+          deviceName:    values.deviceName,
+          orientation:   values.orientation,
         })
         setDeviceState(nextLocal)
-        setupCompleteRef.current = true
       } catch (err) {
         console.error("[kiosk] completeSetup local persist error:", err)
         setSetupError(
-          err instanceof Error ? err.message : "Couldn't save your setup. Try again.",
+          err instanceof Error ? err.message : "Could not save setup. Please try again.",
         )
         setSavingSetup(false)
         return
       }
 
-      // Mirror to Supabase (Lumora Cloud). This is best-effort — if the RPC
-      // isn't deployed yet or the network is unavailable, we still advance
-      // because the local device-state is the on-device source of truth.
-      try {
-        await saveSetup(values)
-        await refresh()
-      } catch (err) {
-        console.error("[kiosk] completeSetup cloud sync error (non-fatal):", err)
-        // Surface a soft warning but don't block advancing.
-        setSetupError(
-          "Setup saved locally. Cloud sync failed — reconnect to sync later.",
-        )
+      // 2. Register with the local server (gets us a pairing code).
+      //    If the server isn't running this will show the registering/retry screen.
+      const ok = await doRegister(values.deviceName)
+      if (!ok) {
+        // registrationError is already set inside doRegister; UI shows retry.
+        setSavingSetup(false)
+        return
       }
 
-      // Advance regardless of cloud sync outcome.
-      setPhase(pairedRef.current ? "ready" : "pairing")
+      // 3. Sync setup values to the local server (best-effort).
+      try {
+        await withTimeout(
+          saveSetup(values),
+          REGISTER_TIMEOUT_MS,
+          "Setup sync timed out.",
+        )
+      } catch (err) {
+        console.error("[kiosk] setup sync error (non-fatal):", err)
+        setSetupError("Setup saved locally. Server sync failed — will retry on next boot.")
+      }
+
+      // 4. Fetch fresh state to get the pairing code.
+      await refresh()
+
+      // 5. Advance — paired already (e.g. dev reset) goes straight to ready.
+      readyRef.current = true
       setSavingSetup(false)
+      setPhase(pairedRef.current ? "ready" : "pairing")
     },
-    [refresh],
+    [doRegister, refresh],
   )
 
-  const retryRegistration = useCallback(async () => {
-    const ok = await doRegister(deviceState.deviceName ?? undefined)
-    if (ok) {
-      await refresh()
-      const local = await loadDeviceState()
-      setDeviceState(local)
-      resolvePhase(local, await fetchKioskState())
-    }
-  }, [doRegister, refresh, resolvePhase, deviceState.deviceName])
-
-  // Boot sequence: splash -> (register) -> resolve phase.
+  // ------------------------------------------------------------------
+  // Boot sequence: splash → maybe setup, maybe pairing, maybe ready
+  // ------------------------------------------------------------------
   useEffect(() => {
     let alive = true
     ;(async () => {
       try {
-        // 1. Load local device state while the splash shows.
+        // Load persisted device state (fast — local file/localStorage).
         const local = await loadDeviceState()
         if (!alive) return
         setDeviceState(local)
-        setupCompleteRef.current = local.setupComplete
 
-        // 2. Ensure registered with Lumora Cloud.
-        if (!isDeviceRegistered()) {
-          const ok = await doRegister(local.deviceName ?? undefined)
-          if (!alive) return
-          if (!ok) {
-            // Stay on the registering/retry screen; boot resumes via retry.
-            setLoading(false)
-            return
-          }
-        } else {
-          registeredRef.current = true
+        if (!local.setupComplete) {
+          // First run — show the setup wizard. Don't touch the server yet.
+          setPhase("setup")
+          setLoading(false)
+          return
         }
 
-        // 3 & 4. Resolve setup + pairing from server state.
+        // Setup was done on a previous boot. Re-register with the server
+        // (idempotent — returns the existing token if we already have one).
+        const ok = await doRegister(local.deviceName ?? undefined)
+        if (!alive) return
+        if (!ok) {
+          // Server unreachable — registrationError is set; show retry screen.
+          setLoading(false)
+          return
+        }
+
+        // Fetch pairing/claim state.
         const server = await fetchKioskState()
         if (!alive) return
         pairedRef.current = server.paired
         setState(server)
-        resolvePhase(local, server)
+        readyRef.current = true
+
+        if (server.paired) setPhase("ready")
+        else setPhase("pairing")
       } catch (err) {
         console.error("[kiosk] init error:", err)
-        if (alive) {
-          setInitError(
-            err instanceof Error ? err.message : "Failed to connect to server.",
-          )
-        }
+        if (alive) setInitError(err instanceof Error ? err.message : "Failed to start.")
       } finally {
         if (alive) setLoading(false)
       }
     })()
-    return () => {
-      alive = false
-    }
-  }, [doRegister, resolvePhase])
+    return () => { alive = false }
+  }, [doRegister])
 
-  // Keep phase in sync as pairing state changes (e.g. claimed while waiting).
+  // Keep phase in sync when pairing state changes live (claimed while waiting).
   useEffect(() => {
-    if (!registeredRef.current || !setupCompleteRef.current) return
+    if (!readyRef.current) return
     if (state.paired) setPhase("ready")
     else if (phase === "ready") setPhase("pairing")
   }, [state.paired, phase])
 
-  // While unpaired: poll briskly so claiming feels instant.
-  // While paired: only send a periodic heartbeat (data stays fresh via Realtime).
+  // Poll / heartbeat loop.
   useEffect(() => {
     let alive = true
     let timer: ReturnType<typeof setTimeout> | undefined
 
     const loop = async () => {
-      if (!alive) return
-      // Don't run until registration has completed and setup is done.
-      if (!registeredRef.current || !setupCompleteRef.current) {
+      if (!alive || !readyRef.current) {
         timer = setTimeout(loop, 500)
         return
       }
       try {
         if (!pairedRef.current) {
-          // Still waiting to be claimed — refresh pairing state briskly.
           await refresh()
         } else {
-          // Paired — just heartbeat; Realtime handles data freshness.
           const m = await collectKioskMetrics()
           await sendHeartbeat(m)
         }
-      } catch {
-        /* transient; next tick retries */
-      }
+      } catch { /* transient */ }
       if (!alive) return
       timer = setTimeout(loop, pairedRef.current ? HEARTBEAT_MS : PAIR_POLL_MS)
     }
@@ -324,32 +316,16 @@ export function KioskProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<KioskContextValue>(
     () => ({
-      state,
-      deviceState,
-      phase,
-      loading,
-      registrationError,
-      initError,
-      savingSetup,
-      setupError,
-      retryRegistration,
-      completeSetup,
-      refresh,
-      unpair,
+      state, deviceState, phase, loading,
+      registrationError, initError,
+      savingSetup, setupError,
+      retryRegistration, completeSetup, refresh, unpair,
     }),
     [
-      state,
-      deviceState,
-      phase,
-      loading,
-      registrationError,
-      initError,
-      savingSetup,
-      setupError,
-      retryRegistration,
-      completeSetup,
-      refresh,
-      unpair,
+      state, deviceState, phase, loading,
+      registrationError, initError,
+      savingSetup, setupError,
+      retryRegistration, completeSetup, refresh, unpair,
     ],
   )
 

@@ -3,10 +3,9 @@
 import { Sparkles, Loader2, CloudOff, RefreshCw } from "lucide-react"
 
 /**
- * "Registering Device…" screen — startup step 2 (Lumora Cloud enrollment).
- *
- * Shown while the Device Registration service enrolls this device. If
- * enrollment fails (offline, backend down), it flips to a retry state.
+ * "Connecting to hub server…" screen — shown while kiosk-provider registers
+ * the device with the local lumora-server after the setup wizard completes.
+ * If the server is unreachable it flips to a retry state.
  */
 export function RegisteringScreen({
   error,
@@ -28,9 +27,13 @@ export function RegisteringScreen({
         <div className="flex max-w-sm flex-col items-center gap-5">
           <CloudOff className="size-9 text-muted-foreground" />
           <div>
-            <p className="text-lg font-semibold">Couldn&apos;t register this device</p>
+            <p className="text-lg font-semibold">Could not connect to the hub server</p>
             <p className="mt-1.5 text-pretty text-sm leading-relaxed text-muted-foreground">
               {error}
+            </p>
+            <p className="mt-3 text-pretty text-xs text-muted-foreground">
+              Make sure the <span className="font-mono">lumora-server</span> service is running:{" "}
+              <span className="font-mono">systemctl --user start lumora-server</span>
             </p>
           </div>
           <button
@@ -45,7 +48,7 @@ export function RegisteringScreen({
       ) : (
         <div className="flex items-center gap-2.5 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
-          <span className="text-sm font-medium">Registering device with Lumora Cloud…</span>
+          <span className="text-sm font-medium">Connecting to hub server…</span>
         </div>
       )}
     </main>
