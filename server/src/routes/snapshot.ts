@@ -19,8 +19,10 @@ snapshotRouter.get("/", requireAuth, (req, res) => {
   const db = getDb()
   const hid = (req as import("../middleware/auth").AuthRequest).user.householdId
 
-  // Kiosk device tokens have no householdId until the device is claimed.
-  if (!hid) {
+  // Guard against undefined/null/empty — kiosk device not yet paired, or
+  // token resolved no household from DB. Return empty collections rather than
+  // passing an invalid bind param to SQLite (which throws and causes a 500).
+  if (hid == null || hid === "") {
     res.json({ members: [], calendars: [], events: [], chores: [], lists: [],
       list_items: [], meals: [], notifications: [], photos: [] })
     return
