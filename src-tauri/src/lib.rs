@@ -1,7 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
-use std::process::Command;
 use serde::{Deserialize, Serialize};
+use std::process::Command;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -72,7 +72,12 @@ fn parse_nmcli_wifi_line(line: &str) -> Option<WifiNetwork> {
     // IN-USE is "*" when connected, empty otherwise.
     let connected = fields[3].trim() == "*";
 
-    Some(WifiNetwork { ssid, signal, security, connected })
+    Some(WifiNetwork {
+        ssid,
+        signal,
+        security,
+        connected,
+    })
 }
 
 // ─── WiFi commands ────────────────────────────────────────────────────────────
@@ -93,9 +98,13 @@ async fn wifi_scan() -> Result<Vec<WifiNetwork>, String> {
         Command::new("nmcli")
             .args([
                 "--terse",
-                "--fields", "SSID,SIGNAL,SECURITY,IN-USE",
-                "dev", "wifi", "list",
-                "--rescan", "yes",
+                "--fields",
+                "SSID,SIGNAL,SECURITY,IN-USE",
+                "dev",
+                "wifi",
+                "list",
+                "--rescan",
+                "yes",
             ])
             .output()
     })
@@ -130,11 +139,36 @@ async fn wifi_scan() -> Result<Vec<WifiNetwork>, String> {
 /// fully exercisable without a real kiosk device.
 fn dev_mock_networks() -> Vec<WifiNetwork> {
     vec![
-        WifiNetwork { ssid: "Lumora Home".into(),     signal: 92, security: "wpa".into(), connected: false },
-        WifiNetwork { ssid: "Living Room 5G".into(),  signal: 78, security: "wpa".into(), connected: false },
-        WifiNetwork { ssid: "Pek Family".into(),      signal: 64, security: "wpa".into(), connected: false },
-        WifiNetwork { ssid: "Guest Network".into(),   signal: 51, security: "open".into(), connected: false },
-        WifiNetwork { ssid: "Neighbor_2.4".into(),    signal: 28, security: "wep".into(), connected: false },
+        WifiNetwork {
+            ssid: "Lumora Home".into(),
+            signal: 92,
+            security: "wpa".into(),
+            connected: false,
+        },
+        WifiNetwork {
+            ssid: "Living Room 5G".into(),
+            signal: 78,
+            security: "wpa".into(),
+            connected: false,
+        },
+        WifiNetwork {
+            ssid: "Pek Family".into(),
+            signal: 64,
+            security: "wpa".into(),
+            connected: false,
+        },
+        WifiNetwork {
+            ssid: "Guest Network".into(),
+            signal: 51,
+            security: "open".into(),
+            connected: false,
+        },
+        WifiNetwork {
+            ssid: "Neighbor_2.4".into(),
+            signal: 28,
+            security: "wep".into(),
+            connected: false,
+        },
     ]
 }
 
@@ -207,7 +241,10 @@ async fn wifi_connect(ssid: String, password: Option<String>) -> Result<bool, St
 /// Translate raw nmcli error text into a short, user-facing message.
 fn humanise_nmcli_error(raw: &str) -> String {
     let lower = raw.to_lowercase();
-    if lower.contains("secrets were required") || lower.contains("no secrets") || lower.contains("wrong password") {
+    if lower.contains("secrets were required")
+        || lower.contains("no secrets")
+        || lower.contains("wrong password")
+    {
         return "Incorrect password — please try again.".to_string();
     }
     if lower.contains("timeout") || lower.contains("timed out") {
@@ -242,8 +279,10 @@ async fn wifi_status() -> Result<Option<String>, String> {
         Command::new("nmcli")
             .args([
                 "--terse",
-                "--fields", "DEVICE,TYPE,STATE,CONNECTION",
-                "dev", "status",
+                "--fields",
+                "DEVICE,TYPE,STATE,CONNECTION",
+                "dev",
+                "status",
             ])
             .output()
     })
@@ -292,11 +331,9 @@ struct LocaleResult {
 /// All syscalls run in spawn_blocking.
 #[tauri::command]
 async fn locale_get() -> Result<LocaleResult, String> {
-    let output = tokio::task::spawn_blocking(|| {
-        Command::new("localectl").arg("status").output()
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+    let output = tokio::task::spawn_blocking(|| Command::new("localectl").arg("status").output())
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?;
 
     // If localectl is not available (e.g. non-systemd Linux), fall back to LANG env.
     let lang = match output {
@@ -401,11 +438,9 @@ struct TimezoneResult {
 /// not available. All blocking calls run in spawn_blocking.
 #[tauri::command]
 async fn timezone_get() -> Result<TimezoneResult, String> {
-    let output = tokio::task::spawn_blocking(|| {
-        Command::new("timedatectl").arg("show").output()
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking failed: {e}"))?;
+    let output = tokio::task::spawn_blocking(|| Command::new("timedatectl").arg("show").output())
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))?;
 
     let timezone = match output {
         Ok(o) if o.status.success() => {
@@ -581,13 +616,13 @@ async fn screen_orientation_set(rotation: String) -> Result<(), String> {
         // ── Step 1: rotate the display ──────────────────────────────────────
         //
         // Detect the first connected output (e.g. "HDMI-1", "DSI-1", "eDP-1").
-        let probe = Command::new("xrandr").output().unwrap_or_else(|_| {
-            std::process::Output {
+        let probe = Command::new("xrandr")
+            .output()
+            .unwrap_or_else(|_| std::process::Output {
                 status: std::process::ExitStatus::default(),
                 stdout: b"HDMI-1 connected".to_vec(),
                 stderr: vec![],
-            }
-        });
+            });
         let xrandr_text = String::from_utf8_lossy(&probe.stdout);
         let display = xrandr_text
             .lines()
@@ -602,7 +637,9 @@ async fn screen_orientation_set(rotation: String) -> Result<(), String> {
             .map_err(|e| format!("xrandr failed: {e}"))?;
 
         if !xrandr_result.status.success() {
-            return Err(String::from_utf8_lossy(&xrandr_result.stderr).trim().to_string());
+            return Err(String::from_utf8_lossy(&xrandr_result.stderr)
+                .trim()
+                .to_string());
         }
 
         // ── Step 2: remap touch input to match the rotated display ──────────
@@ -618,12 +655,12 @@ async fn screen_orientation_set(rotation: String) -> Result<(), String> {
         //
         // The matrix is supplied to xinput as a flat row-major list of 9 floats.
         let matrix: &[&str] = match rotation.as_str() {
-            "normal"            => &["1",  "0", "0",  "0",  "1", "0",  "0", "0", "1"],
+            "normal" => &["1", "0", "0", "0", "1", "0", "0", "0", "1"],
             // portrait / right: 90° CW — x_new = y_old, y_new = 1 - x_old
-            "right" | "portrait" => &["0",  "1", "0",  "-1", "0", "1",  "0", "0", "1"],
-            "left"              => &["0", "-1", "1",  "1",  "0", "0",  "0", "0", "1"],
-            "inverted"          => &["-1", "0", "1",  "0", "-1", "1",  "0", "0", "1"],
-            _                   => return Ok(()), // already validated above
+            "right" | "portrait" => &["0", "1", "0", "-1", "0", "1", "0", "0", "1"],
+            "left" => &["0", "-1", "1", "1", "0", "0", "0", "0", "1"],
+            "inverted" => &["-1", "0", "1", "0", "-1", "1", "0", "0", "1"],
+            _ => return Ok(()), // already validated above
         };
 
         // Find the first touch or pointer input device via xinput.
@@ -660,8 +697,7 @@ async fn screen_orientation_set(rotation: String) -> Result<(), String> {
         if let Some(id) = touch_id {
             // Build xinput set-prop command:
             //   xinput set-prop <id> "Coordinate Transformation Matrix" <9 floats>
-            let mut args: Vec<&str> =
-                vec!["set-prop", &id, "Coordinate Transformation Matrix"];
+            let mut args: Vec<&str> = vec!["set-prop", &id, "Coordinate Transformation Matrix"];
             args.extend_from_slice(matrix);
 
             let _ = Command::new("xinput").args(&args).output();
@@ -699,6 +735,7 @@ fn get_utc_offset_string(timezone: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // .plugin(tauri_plugin_haptics::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
