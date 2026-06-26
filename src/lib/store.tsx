@@ -364,6 +364,13 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       debounce = setTimeout(() => void tick(), 400)
     }
 
+    // Connect the Socket.IO live socket. In kiosk mode we use the device token
+    // and join with "kiosk" as the room id — the server resolves the real
+    // household from the token via the socketAuth middleware. In user mode we
+    // use the household id from the session. Always pass a non-empty string.
+    const socketHouseholdId = auth?.household?.id ?? "kiosk"
+    liveSocket.connect(socketHouseholdId)
+
     // Subscribe to Socket.IO live events. Each "<table>:<action>" event from
     // the local server triggers a full re-fetch + reconcile of all collections.
     // For most households the payload is small so a full reload is fast and
@@ -382,10 +389,12 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       alive = false
       clearTimeout(debounce)
       unsubscribe()
+      liveSocket.disconnect()
       window.removeEventListener("focus", onFocus)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [kioskMode])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kioskMode, auth?.household?.id])
 
   const clearHighlight = useCallback(() => setHighlight(null), [])
 
