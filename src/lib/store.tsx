@@ -164,6 +164,8 @@ type Store = {
   deleteMember: (id: string) => void
   /** Create (or refresh) an invite for a member and keep the member list in sync. */
   inviteMember: (member: Member) => Promise<Invite>
+  /** Revoke an outstanding invite by invite id, clears the pending flag. */
+  cancelInvite: (inviteId: string, memberId: string) => Promise<void>
 
   // calendars
   addCalendar: (c: Omit<Calendar, "id">) => void
@@ -452,6 +454,13 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     }
     return invite
   }, [])
+  const cancelInvite = useCallback(async (inviteId: string, memberId: string) => {
+    await api.deleteInvite(inviteId)
+    // Clear pending flag optimistically.
+    setMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, pending: false } : m)),
+    )
+  }, [])
 
   // The member tied to the signed-in account drives role-based permissions.
   // Match on the auth user id first (Supabase links members via user_id), then
@@ -710,6 +719,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       updateMember,
       deleteMember,
       inviteMember,
+      cancelInvite,
       addCalendar,
       updateCalendar,
       deleteCalendar,
@@ -764,6 +774,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       updateMember,
       deleteMember,
       inviteMember,
+      cancelInvite,
       addCalendar,
       updateCalendar,
       deleteCalendar,

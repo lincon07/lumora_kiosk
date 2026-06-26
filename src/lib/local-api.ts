@@ -213,6 +213,7 @@ function toPhoto(r: Row): Photo {
 
 function toInvite(r: Row): Invite {
   return {
+    id: r.id as string,
     token: r.token as string,
     code: r.code as string,
     householdId: (r.household_id ?? r.householdId) as string,
@@ -425,6 +426,9 @@ export function createLocalApi(): LumoraApi {
       } catch {
         return null
       }
+    },
+    async deleteInvite(id: string) {
+      await req(`/invites/${id}`, "DELETE")
     },
     async claimInvite(input: ClaimInviteInput) {
       const res = await req<{ token: string; refreshToken: string; user: User; household: Household }>(

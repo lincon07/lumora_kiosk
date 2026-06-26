@@ -763,27 +763,47 @@ function MemberSheet({
   )
 }
 
-function InviteSheet({ open, member, onClose }: { open: boolean; member: Member | null; onClose: () => void }) {
-  const { inviteMember } = useStore()
+function InviteSheet({
+  open,
+  member,
+  onClose,
+}: {
+  open: boolean
+  member: Member | null
+  onClose: () => void
+}) {
+  const { inviteMember, cancelInvite } = useStore()
   const [invite, setInvite] = useState<Invite | null>(null)
   const [busy, setBusy] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
+
+  const generate = () => {
+    if (!member) return
+    setError(null)
+    setBusy(true)
+    inviteMember(member)
+      .then(setInvite)
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not create invite."))
+      .finally(() => setBusy(false))
+  }
 
   useEffect(() => {
     if (!open || !member) return
     setInvite(null)
     setError(null)
     setCopied(false)
-    setBusy(true)
-    inviteMember(member)
-      .then(setInvite)
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not create invite."))
-      .finally(() => setBusy(false))
-  }, [open, member, inviteMember])
+    setCopiedLink(false)
+    generate()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, member])
 
   // QR payload the claim flow understands (token + human-typable code).
-  const payload = invite ? JSON.stringify({ app: "lumora", token: invite.token, code: invite.code }) : ""
+  const payload = invite
+    ? JSON.stringify({ app: "lumora", token: invite.token, code: invite.code })
+    : ""
 
   const copyCode = async () => {
     if (!invite) return
@@ -791,8 +811,31 @@ function InviteSheet({ open, member, onClose }: { open: boolean; member: Member 
       await navigator.clipboard.writeText(invite.code)
       setCopied(true)
       setTimeout(() => setCopied(false), 1800)
-    } catch {
-      /* ignore */
+    } catch { /* ignore */ }
+  }
+
+  const copyLink = async () => {
+    if (!invite) return
+    // Deep-link that the mobile app can intercept; falls back to a web URL.
+    const link = `lumora://invite/${invite.token}`
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopiedLink(true)
+      setTimeout(() => setCopiedLink(false), 1800)
+    } catch { /* ignore */ }
+  }
+
+  const handleCancel = async () => {
+    if (!invite || !member) return
+    setCancelling(true)
+    try {
+      await cancelInvite(invite.id, member.id)
+      setInvite(null)
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not cancel invite.")
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -804,26 +847,98 @@ function InviteSheet({ open, member, onClose }: { open: boolean; member: Member 
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
         ) : error ? (
-          <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{error}</p>
+          <div className="w-full space-y-3">
+            <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{error}</p>
+            <button
+              type="button"
+              onClick={generate}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border py-3 text-sm font-semibold"
+            >
+              <RefreshCw className="size-4" />
+              Try again
+            </button>
+          </div>
         ) : invite ? (
           <>
             <p className="mb-4 max-w-xs text-pretty text-sm text-muted-foreground">
-              Have {member?.name} open Lumora on their phone, tap{" "}
-              <span className="font-semibold text-foreground">I have an invite</span>, and scan this code to set up
-              their profile.
+              Have{" "}
+              <span className="font-semibold text-foreground">{member?.name}</span> open Lumora on
+              their phone, tap{" "}
+              <span className="font-semibold text-foreground">I have an invite</span>, and scan the
+              code below to create their profile.
             </p>
-            <QrCode value={payload} size={208} />
+
+            {/* QR code */}
+            <div className="rounded-2xl border border-border bg-white p-3">
+              <QrCode value={payload} size={192} />
+            </div>
+
+            {/* Manual code */}
             <div className="mt-4 w-full">
-              <p className="text-xs font-semibold text-muted-foreground">Or share this code</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Or enter this code manually
+              </p>
               <button
                 type="button"
                 onClick={copyCode}
-                className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-3 text-lg font-bold tracking-widest text-foreground"
+                className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-xl bg-secondary py-3 text-xl font-bold tracking-widest text-foreground transition-colors hover:bg-secondary/80"
               >
                 {invite.code}
-                {copied ? <Check className="size-4 text-member-green" /> : <Copy className="size-4 text-muted-foreground" />}
+                {copied ? (
+                  <Check className="size-4 text-member-green" />
+                ) : (
+                  <Copy className="size-4 text-muted-foreground" />
+                )}
               </button>
-              <p className="mt-2 text-xs text-muted-foreground">Expires in 7 days</p>
+            </div>
+
+            {/* Copy link */}
+            <button
+              type="button"
+              onClick={copyLink}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+            >
+              {copiedLink ? (
+                <>
+                  <Check className="size-4 text-member-green" />
+                  Link copied
+                </>
+              ) : (
+                <>
+                  <Copy className="size-4" />
+                  Copy invite link
+                </>
+              )}
+            </button>
+
+            <p className="mt-2 text-xs text-muted-foreground">
+              Expires in 7 days &middot; code is single-use
+            </p>
+
+            {/* Refresh / Cancel */}
+            <div className="mt-4 flex w-full gap-2">
+              <button
+                type="button"
+                onClick={generate}
+                disabled={busy}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                <RefreshCw className="size-4" />
+                New code
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-destructive/10 py-2.5 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/15 disabled:opacity-50"
+              >
+                {cancelling ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Trash2 className="size-4" />
+                )}
+                Cancel invite
+              </button>
             </div>
           </>
         ) : null}
@@ -833,12 +948,20 @@ function InviteSheet({ open, member, onClose }: { open: boolean; member: Member 
 }
 
 function FamilyMembersSection() {
-  const { members, deleteMember, can } = useStore()
+  const { members, deleteMember, can, addMember, inviteMember: storeinvite } = useStore()
   const canManageMembers = can("members")
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState<Member | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Member | null>(null)
-  const [inviteMember, setInviteMember] = useState<Member | null>(null)
+  const [invitingMember, setInvitingMember] = useState<Member | null>(null)
+  // "quick invite" — create a basic member then immediately open invite sheet
+  const [quickInviteOpen, setQuickInviteOpen] = useState(false)
+  const [quickInviteName, setQuickInviteName] = useState("")
+  const [quickInviteRole, setQuickInviteRole] = useState<MemberRole>("adult")
+  const [quickInviteColor, setQuickInviteColor] = useState<MemberColor>("blue")
+  const [quickBusy, setQuickBusy] = useState(false)
+  const [quickError, setQuickError] = useState<string | null>(null)
+  const [pendingInviteMember, setPendingInviteMember] = useState<Member | null>(null)
 
   const people = members.filter((m) => m.id !== "family")
 
@@ -849,6 +972,44 @@ function FamilyMembersSection() {
   const openEdit = (m: Member) => {
     setEditing(m)
     setSheetOpen(true)
+  }
+
+  // Quick-invite: create a minimal member then open the invite QR sheet
+  const handleQuickInvite = async () => {
+    const name = quickInviteName.trim()
+    if (!name) return
+    setQuickBusy(true)
+    setQuickError(null)
+    try {
+      const { api: localApi } = await import("@/lib/api")
+      const created = await localApi.createMember({
+        name,
+        color: quickInviteColor,
+        role: quickInviteRole,
+        permissions: [],
+      })
+      // Translate ApiMember → Member for the invite sheet
+      const member: Member = {
+        id: created.id,
+        name: created.name,
+        initial: created.name.charAt(0).toUpperCase(),
+        color: created.color,
+        role: created.role,
+        dob: created.dob,
+        account: created.account,
+        permissions: created.permissions,
+        pending: false,
+      }
+      // Optimistically add to member list then open invite sheet
+      addMember(member)
+      setQuickInviteOpen(false)
+      setQuickInviteName("")
+      setPendingInviteMember(member)
+    } catch (e) {
+      setQuickError(e instanceof Error ? e.message : "Could not add member.")
+    } finally {
+      setQuickBusy(false)
+    }
   }
 
   return (
@@ -904,17 +1065,28 @@ function FamilyMembersSection() {
           })}
         </ul>
         {canManageMembers ? (
-          <button
-            type="button"
-            onClick={openAdd}
-            className="flex w-full items-center gap-2 border-t border-border/60 px-4 py-3 text-sm font-semibold text-primary"
-          >
-            <UserPlus className="size-4" />
-            Add member
-          </button>
+          <div className="divide-y divide-border/60 border-t border-border/60">
+            <button
+              type="button"
+              onClick={openAdd}
+              className="flex w-full items-center gap-2 px-4 py-3 text-sm font-semibold text-primary"
+            >
+              <UserPlus className="size-4" />
+              Add member
+            </button>
+            <button
+              type="button"
+              onClick={() => { setQuickInviteOpen(true); setQuickError(null) }}
+              className="flex w-full items-center gap-2 px-4 py-3 text-sm font-semibold text-primary"
+            >
+              <QrCodeIcon className="size-4" />
+              Invite someone to join
+            </button>
+          </div>
         ) : null}
       </div>
 
+      {/* Edit / add member sheet */}
       <MemberSheet
         open={sheetOpen}
         member={editing}
@@ -930,14 +1102,111 @@ function FamilyMembersSection() {
         onInvite={
           editing
             ? () => {
-                setInviteMember(editing)
+                setInvitingMember(editing)
                 setSheetOpen(false)
               }
             : undefined
         }
       />
 
-      <InviteSheet open={!!inviteMember} member={inviteMember} onClose={() => setInviteMember(null)} />
+      {/* Invite QR sheet — opened from "Invite to app" inside edit sheet */}
+      <InviteSheet
+        open={!!invitingMember}
+        member={invitingMember}
+        onClose={() => setInvitingMember(null)}
+      />
+
+      {/* Invite QR sheet — opened from "Invite someone to join" quick flow */}
+      <InviteSheet
+        open={!!pendingInviteMember}
+        member={pendingInviteMember}
+        onClose={() => setPendingInviteMember(null)}
+      />
+
+      {/* Quick-invite bottom sheet */}
+      <BottomSheet
+        open={quickInviteOpen}
+        onClose={() => setQuickInviteOpen(false)}
+        title="Invite someone to join"
+        footer={
+          <button
+            type="button"
+            onClick={handleQuickInvite}
+            disabled={!quickInviteName.trim() || quickBusy}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40"
+          >
+            {quickBusy ? <Loader2 className="size-4 animate-spin" /> : <QrCodeIcon className="size-4" />}
+            Create &amp; get invite code
+          </button>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Enter a name for this person. You&apos;ll get a QR code and a manual code they can use to
+            set up their own account.
+          </p>
+
+          <Field label="Name">
+            <input
+              className={inputClass}
+              value={quickInviteName}
+              onChange={(e) => setQuickInviteName(e.target.value)}
+              placeholder="Full name"
+              autoFocus
+            />
+          </Field>
+
+          <Field label="Role">
+            <div className="grid grid-cols-4 gap-1.5">
+              {roleOptions.map((r) => {
+                const active = quickInviteRole === r
+                return (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setQuickInviteRole(r)}
+                    aria-pressed={active}
+                    className={cn(
+                      "rounded-xl py-2 text-xs font-semibold transition-colors",
+                      active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {roleLabels[r]}
+                  </button>
+                )
+              })}
+            </div>
+          </Field>
+
+          <Field label="Color">
+            <div className="flex gap-2">
+              {colorOptions.map((c) => {
+                const active = quickInviteColor === c
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setQuickInviteColor(c)}
+                    aria-label={c}
+                    aria-pressed={active}
+                    className={cn(
+                      "size-8 rounded-full transition-transform",
+                      memberBg[c],
+                      active ? "ring-2 ring-foreground ring-offset-2 ring-offset-card" : "hover:scale-105",
+                    )}
+                  />
+                )
+              })}
+            </div>
+          </Field>
+
+          {quickError ? (
+            <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
+              {quickError}
+            </p>
+          ) : null}
+        </div>
+      </BottomSheet>
 
       <ConfirmDialog
         open={!!confirmDelete}
