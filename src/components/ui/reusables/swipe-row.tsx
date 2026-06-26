@@ -66,9 +66,10 @@ export function SwipeRow({
 
   const close = () => setOffset(0)
 
-  // If the row is open, a tap on the foreground closes it instead of activating content.
+  // If the row is swiped open, a tap on the foreground closes it instead of activating content.
+  // Only intercept if the row is currently offset — never block clicks from a stationary tap.
   const onForegroundClickCapture = (e: React.MouseEvent) => {
-    if (moved.current || offset !== 0) {
+    if (offset !== 0) {
       e.preventDefault()
       e.stopPropagation()
       close()

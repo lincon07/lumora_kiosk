@@ -119,6 +119,7 @@ export function CalendarView() {
   })
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [manageOpen, setManageOpen] = useState(false)
+  const [confirmDeleteCal, setConfirmDeleteCal] = useState<Calendar | null>(null)
 
   const selDateObj = useMemo(() => new Date(`${selectedDate}T00:00:00`), [selectedDate])
   const [viewYear, setViewYear] = useState(selDateObj.getFullYear())
@@ -268,7 +269,7 @@ export function CalendarView() {
     filteredEvents.filter((e) => e.date === iso)
 
   return (
-    <div className="flex flex-col gap-0 pb-6">
+    <div className="flex flex-col" style={{ minHeight: "calc(100dvh - 10rem)" }}>
       {/* ---- toolbar -------------------------------------------------------- */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/60 px-4 pt-3 pb-2 space-y-2">
         {/* Calendar filter chips */}
@@ -348,7 +349,7 @@ export function CalendarView() {
       </div>
 
       {/* ---- views ---------------------------------------------------------- */}
-      <div className="flex-1">
+      <div className="flex flex-1 flex-col overflow-hidden">
         {viewMode === "month" ? (
           <MonthView
             year={viewYear}
@@ -517,8 +518,11 @@ export function CalendarView() {
           if (calFilter === id) setCalFilter(null)
           deleteCalendar(id)
         }}
+        confirmDelete={confirmDeleteCal}
+        setConfirmDelete={setConfirmDeleteCal}
       />
 
+      {/* Event delete confirmation */}
       <ConfirmDialog
         open={!!deleteId}
         title="Delete event?"
@@ -527,6 +531,21 @@ export function CalendarView() {
         onConfirm={() => {
           if (deleteId) deleteEvent(deleteId)
           setDeleteId(null)
+        }}
+      />
+
+      {/* Calendar delete confirmation — rendered outside ManageCalendarsSheet to avoid nested portal conflict */}
+      <ConfirmDialog
+        open={!!confirmDeleteCal}
+        title="Delete calendar?"
+        message={confirmDeleteCal ? `"${confirmDeleteCal.name}" and all its events will be removed.` : ""}
+        onCancel={() => setConfirmDeleteCal(null)}
+        onConfirm={() => {
+          if (confirmDeleteCal) {
+            if (calFilter === confirmDeleteCal.id) setCalFilter(null)
+            deleteCalendar(confirmDeleteCal.id)
+          }
+          setConfirmDeleteCal(null)
         }}
       />
     </div>
@@ -558,9 +577,9 @@ function MonthView({
   const calColor = (id: string): MemberColor => calendars.find((c) => c.id === id)?.color ?? "blue"
 
   return (
-    <div className="px-2 pt-3">
+    <div className="flex flex-1 flex-col px-2 pt-2 pb-2">
       {/* Day headers */}
-      <div className="grid grid-cols-7 mb-1">
+      <div className="grid grid-cols-7 mb-1 shrink-0">
         {dayNamesShort.map((d) => (
           <div key={d} className="text-center text-[11px] font-semibold text-muted-foreground py-1">
             {d}
@@ -568,14 +587,15 @@ function MonthView({
         ))}
       </div>
 
-      {/* Date cells */}
-      <div className="grid grid-cols-7 gap-y-1">
+      {/* Date cells — fill all remaining height with 6 equal rows */}
+      <div className="grid flex-1 grid-cols-7 grid-rows-6 gap-0.5">
         {grid.map((date, i) => {
           const iso = toISODate(date)
           const isCurrentMonth = date.getMonth() === month
           const isToday = iso === todayISO
           const isSelected = iso === selectedDate
           const dayEvents = events.filter((e) => e.date === iso).slice(0, 3)
+          const overflow = events.filter((e) => e.date === iso).length - 3
 
           return (
             <button
@@ -584,14 +604,14 @@ function MonthView({
               onClick={() => onSelectDate(iso)}
               onDoubleClick={() => onAddEvent?.(iso)}
               className={cn(
-                "flex flex-col items-center rounded-xl py-1 px-0.5 transition-colors min-h-[4.5rem]",
+                "flex flex-col items-center rounded-xl p-0.5 transition-colors overflow-hidden",
                 isSelected ? "bg-primary/10 ring-1 ring-primary/40" : "hover:bg-secondary",
                 !isCurrentMonth && "opacity-30",
               )}
             >
               <span
                 className={cn(
-                  "flex size-7 items-center justify-center rounded-full text-sm font-semibold leading-none mb-0.5",
+                  "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold leading-none my-0.5",
                   isToday ? "bg-primary text-primary-foreground" : isSelected ? "text-primary" : "text-foreground",
                 )}
               >
@@ -610,9 +630,9 @@ function MonthView({
                     {ev.title}
                   </span>
                 ))}
-                {events.filter((e) => e.date === iso).length > 3 ? (
+                {overflow > 0 ? (
                   <span className="text-[9px] font-medium text-muted-foreground text-center">
-                    +{events.filter((e) => e.date === iso).length - 3}
+                    +{overflow}
                   </span>
                 ) : null}
               </div>
@@ -881,6 +901,8 @@ function ManageCalendarsSheet({
   onAdd,
   onUpdate,
   onDelete,
+  confirmDelete,
+  setConfirmDelete,
 }: {
   open: boolean
   onClose: () => void
@@ -889,9 +911,10 @@ function ManageCalendarsSheet({
   onAdd: (c: Omit<Calendar, "id">) => void
   onUpdate: (id: string, patch: Partial<Omit<Calendar, "id">>) => void
   onDelete: (id: string) => void
+  confirmDelete: Calendar | null
+  setConfirmDelete: (c: Calendar | null) => void
 }) {
   const [draft, setDraft] = useState<CalDraft>({ name: "", color: "coral", memberIds: [] })
-  const [confirmDelete, setConfirmDelete] = useState<Calendar | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<CalDraft>({ name: "", color: "coral", memberIds: [] })
 
@@ -1103,16 +1126,6 @@ function ManageCalendarsSheet({
         </Field>
       </div>
 
-      <ConfirmDialog
-        open={!!confirmDelete}
-        title="Delete calendar?"
-        message={confirmDelete ? `"${confirmDelete.name}" and all of its events will be removed.` : ""}
-        onCancel={() => setConfirmDelete(null)}
-        onConfirm={() => {
-          if (confirmDelete) onDelete(confirmDelete.id)
-          setConfirmDelete(null)
-        }}
-      />
     </BottomSheet>
   )
 }
