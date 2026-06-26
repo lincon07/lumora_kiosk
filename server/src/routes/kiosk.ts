@@ -143,6 +143,66 @@ kioskRouter.post("/heartbeat", requireAuth, (req: Request, res: Response): void 
 })
 
 // ---------------------------------------------------------------------------
+// POST /claim — household member claims a device by pairing code
+//
+// Called by a member (user JWT in Authorization header), not the device.
+// Body: { pairing_code: "SQJ-PT3" }
+// ---------------------------------------------------------------------------
+kioskRouter.post("/claim", requireAuth, (req: Request, res: Response): void => {
+  const db = getDb()
+  const { householdId, sub: userId } = req.user!
+
+  if (!householdId) {
+    res.status(403).json({ error: "Only authenticated household members can claim a device." })
+    return
+  }
+
+  const raw: string = ((req.body as Record<string, unknown>)?.pairing_code as string | undefined)?.trim().toUpperCase() ?? ""
+  if (!raw) {
+    res.status(400).json({ error: "pairing_code is required." })
+    return
+  }
+
+  // Normalise: accept with or without the dash (e.g. "SQJPT3" or "SQJ-PT3")
+  const pairingCode = raw.includes("-") ? raw : `${raw.slice(0, 3)}-${raw.slice(3)}`
+
+  const device = db
+    .prepare("SELECT id, household_id, device_name FROM kiosk_devices WHERE pairing_code = ?")
+    .get(pairingCode) as { id: string; household_id: string | null; device_name: string } | undefined
+
+  if (!device) {
+    res.status(404).json({ error: "Pairing code not found. Check the code shown on the hub screen." })
+    return
+  }
+
+  if (device.household_id && device.household_id !== householdId) {
+    res.status(409).json({ error: "This hub is already claimed by a different household." })
+    return
+  }
+
+  // Link device to household and clear the pairing code so it cannot be reused.
+  db.prepare(
+    `UPDATE kiosk_devices
+     SET household_id = ?, pairing_code = NULL
+     WHERE id = ?`,
+  ).run(householdId, device.id)
+
+  // Return the household info so the caller can confirm.
+  const household = db
+    .prepare("SELECT id, name FROM households WHERE id = ?")
+    .get(householdId) as { id: string; name: string } | undefined
+
+  res.json({
+    ok: true,
+    device_id: device.id,
+    device_name: device.device_name,
+    household_id: householdId,
+    household_name: household?.name ?? null,
+    claimed_by: userId,
+  })
+})
+
+// ---------------------------------------------------------------------------
 // POST /unpair — detach from household, issue fresh pairing code
 // ---------------------------------------------------------------------------
 kioskRouter.post("/unpair", requireAuth, (req: Request, res: Response): void => {
