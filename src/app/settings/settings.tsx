@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useSyncExternalStore } from "react"
+import { toast } from "sonner"
 import {
   ChevronRight,
   Bell,
@@ -79,6 +80,10 @@ import {
   subscribeLogs,
   clearLogs,
   relativeTime,
+  startUpdatePolling,
+  stopUpdatePolling,
+  getPendingUpdate,
+  subscribeUpdate,
   type HubLogLevel,
 } from "@/lib/hub"
 import {
@@ -223,7 +228,6 @@ const permissionMeta: Record<PushPermission, { label: string; className: string 
 function PushNotificationsSection() {
   const { addNotification } = useStore()
   const [permission, setPermission] = useState<PushPermission>("default")
-  const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -235,19 +239,17 @@ function PushNotificationsSection() {
     }
   }, [])
 
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 2500)
-    return () => clearTimeout(t)
-  }, [toast])
-
   const meta = permissionMeta[permission]
   const supported = isPushSupported()
 
   const enable = async () => {
     const result = await requestPushPermission()
     setPermission(result)
-    setToast(result === "granted" ? "Push notifications enabled" : "Permission " + result)
+    if (result === "granted") {
+      toast.success("Push notifications enabled")
+    } else {
+      toast.error(`Permission ${result}`)
+    }
   }
 
   const test = async () => {
@@ -256,7 +258,6 @@ function PushNotificationsSection() {
       body: "Test notification — push is working!",
     })
     setPermission(await getPushPermission())
-    // Always log it into the in-app notification center too.
     addNotification({
       title: "Test notification",
       body: ok ? "Delivered to your device." : "Could not deliver — check permissions.",
@@ -264,7 +265,11 @@ function PushNotificationsSection() {
       memberId: "family",
       read: false,
     })
-    setToast(ok ? "Test notification sent" : "Enable notifications first")
+    if (ok) {
+      toast.success("Test notification sent")
+    } else {
+      toast.error("Enable notifications first")
+    }
   }
 
   return (
@@ -310,12 +315,6 @@ function PushNotificationsSection() {
         {permission === "denied" ? (
           <p className="border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground">
             Notifications are blocked. Re-enable them in your device or browser settings.
-          </p>
-        ) : null}
-
-        {toast ? (
-          <p className="border-t border-border/60 bg-secondary/40 px-4 py-2.5 text-xs font-medium text-foreground">
-            {toast}
           </p>
         ) : null}
       </div>
@@ -379,32 +378,33 @@ function HubActionsSection() {
   const { can } = useStore()
   const [logsOpen, setLogsOpen] = useState(false)
   const [confirmRestart, setConfirmRestart] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
+  const [checking, setChecking] = useState(false)
+  const pendingUpdate = useSyncExternalStore(subscribeUpdate, getPendingUpdate, getPendingUpdate)
 
+  // Start polling for updates when the settings tab is mounted; stop on unmount.
   useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 2500)
-    return () => clearTimeout(t)
-  }, [toast])
+    startUpdatePolling(60 * 60 * 1000) // 1-hour interval
+    return () => stopUpdatePolling()
+  }, [])
 
   const onCheckUpdates = async () => {
+    setChecking(true)
     try {
-      const available = await checkForUpdates();
-
-      if (available) {
-        setToast("Update available!");
-        // Open update dialog, ask user to install, etc.
-      } else {
-        setToast("You're on the latest version");
+      const available = await checkForUpdates()
+      if (!available) {
+        toast.success("Already on the latest version")
       }
+      // If available, the UpdateDialog opens automatically via useSyncExternalStore.
     } catch {
-      setToast("Failed to check for updates");
+      toast.error("Failed to check for updates — check your connection")
+    } finally {
+      setChecking(false)
     }
-  };
+  }
 
   const onClearCache = async () => {
     await clearCache()
-    setToast("Cache cleared")
+    toast.success("Cache cleared")
   }
 
   return (
@@ -420,8 +420,24 @@ function HubActionsSection() {
         <ActionRow
           icon={DownloadCloud}
           label="Check for updates"
-          description="Currently on v1.0.0"
+          description={
+            pendingUpdate
+              ? `v${pendingUpdate.version} available`
+              : "Check for the latest release"
+          }
           onClick={onCheckUpdates}
+          trailing={
+            checking ? (
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            ) : pendingUpdate ? (
+              <span className="flex items-center gap-1.5 rounded-full bg-member-green/15 px-2.5 py-1 text-[11px] font-semibold text-member-green">
+                <DownloadCloud className="size-3" />
+                Update ready
+              </span>
+            ) : (
+              <ChevronRight className="size-4 text-muted-foreground" />
+            )
+          }
         />
         <ActionRow
           icon={RotateCcw}
@@ -445,10 +461,6 @@ function HubActionsSection() {
           />
         ) : null}
       </div>
-
-      {toast ? (
-        <p className="mt-2 rounded-2xl bg-secondary/60 px-4 py-2.5 text-xs font-medium text-foreground">{toast}</p>
-      ) : null}
 
       <HistoryLogsSheet open={logsOpen} onClose={() => setLogsOpen(false)} />
 
@@ -1519,18 +1531,11 @@ function WifiSection() {
   const [connecting, setConnecting] = useState<string | null>(null)
   const [passwordFor, setPasswordFor] = useState<WifiNetwork | null>(null)
   const [password, setPassword] = useState("")
-  const [toast, setToast] = useState<string | null>(null)
   const [connectError, setConnectError] = useState<string | null>(null)
 
   useEffect(() => {
     currentNetwork().then(setCurrentSsid).catch(() => null)
   }, [])
-
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 3000)
-    return () => clearTimeout(t)
-  }, [toast])
 
   const scan = async () => {
     setScanning(true)
@@ -1563,7 +1568,7 @@ function WifiSection() {
         setSheetOpen(false)
         setPasswordFor(null)
         setPassword("")
-        setToast(`Connected to ${ssid}`)
+        toast.success(`Connected to ${ssid}`)
       } else {
         setConnectError("Connection failed — wrong password?")
       }
@@ -1596,10 +1601,6 @@ function WifiSection() {
           onClick={openSheet}
         />
       </div>
-
-      {toast ? (
-        <p className="mt-2 rounded-2xl bg-secondary/60 px-4 py-2.5 text-xs font-medium text-foreground">{toast}</p>
-      ) : null}
 
       {/* Network picker */}
       <BottomSheet open={sheetOpen && !passwordFor} onClose={() => setSheetOpen(false)} title="WiFi Network">
@@ -1823,7 +1824,6 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
   const [tzSheetOpen, setTzSheetOpen] = useState(false)
   const [orientationSheetOpen, setOrientationSheetOpen] = useState(false)
   const [applying, setApplying] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
   const [langSearch, setLangSearch] = useState("")
   const [tzSearch, setTzSearch] = useState("")
 
@@ -1831,12 +1831,6 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
     getLanguage().then((r) => setCurrentLang(r.lang))
     getTimezone().then((r) => setCurrentTz(r.timezone))
   }, [])
-
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 3000)
-    return () => clearTimeout(t)
-  }, [toast])
 
   const activeLang = SUPPORTED_LANGUAGES.find(
     (l) => l.code === currentLang || l.code.replace("-", "_") === currentLang?.split(".")[0],
@@ -1850,12 +1844,12 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
       const ok = await setLanguage(code)
       if (ok) {
         setCurrentLang(code)
-        setToast("OS language updated — takes effect after a restart")
+        toast.success("OS language updated — takes effect after a restart")
       } else {
-        setToast("Could not apply language — check system permissions")
+        toast.error("Could not apply language — check system permissions")
       }
     } catch {
-      setToast("Could not apply language")
+      toast.error("Could not apply language")
     } finally {
       setApplying(false)
     }
@@ -1868,12 +1862,12 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
       const ok = await setTimezone(tz)
       if (ok) {
         setCurrentTz(tz)
-        setToast("Timezone updated — takes effect immediately")
+        toast.success("Timezone updated — takes effect immediately")
       } else {
-        setToast("Could not apply timezone — check system permissions")
+        toast.error("Could not apply timezone — check system permissions")
       }
     } catch {
-      setToast("Could not apply timezone")
+      toast.error("Could not apply timezone")
     } finally {
       setApplying(false)
     }
@@ -1887,12 +1881,12 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
       if (ok) {
         setCurrentOrientation(rotation)
         await patchDeviceState({ orientation: rotation })
-        setToast("Screen rotation updated")
+        toast.success("Screen rotation updated")
       } else {
-        setToast("Could not apply rotation — check display connection")
+        toast.error("Could not apply rotation — check display connection")
       }
     } catch {
-      setToast("Could not apply rotation")
+      toast.error("Could not apply rotation")
     } finally {
       setApplying(false)
     }
@@ -1974,10 +1968,6 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
           }
         />
       </div>
-
-      {toast ? (
-        <p className="mt-2 rounded-2xl bg-secondary/60 px-4 py-2.5 text-xs font-medium text-foreground">{toast}</p>
-      ) : null}
 
       {/* Language picker sheet */}
       <BottomSheet open={langSheetOpen} onClose={() => setLangSheetOpen(false)} title="Display Language">
@@ -2113,6 +2103,14 @@ export function SettingsView() {
   const { state: kioskState, deviceState, unpair } = useKiosk()
   const [confirm, setConfirm] = useState<null | "signout" | "clear" | "reset" | "delete" | "unpair">(null)
   const [factoryResetOpen, setFactoryResetOpen] = useState(false)
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    import("@tauri-apps/api/app")
+      .then(({ getVersion }) => getVersion())
+      .then(setAppVersion)
+      .catch(() => null)
+  }, [])
 
   const confirmMeta = {
     signout: {
@@ -2249,7 +2247,9 @@ export function SettingsView() {
         </div>
       </section>
 
-      <p className="pb-2 text-center text-xs text-muted-foreground">Lumora Hub · v1.0.0</p>
+      <p className="pb-2 text-center text-xs text-muted-foreground">
+        Lumora Hub{appVersion ? ` · v${appVersion}` : ""}
+      </p>
 
       <FactoryResetDialog open={factoryResetOpen} onClose={() => setFactoryResetOpen(false)} />
 

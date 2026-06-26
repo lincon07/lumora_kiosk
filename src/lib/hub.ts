@@ -1,4 +1,4 @@
-import { check } from '@tauri-apps/plugin-updater';
+import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 
 /**
@@ -22,6 +22,55 @@ export type HubLogEntry = {
 /** True when running inside the Tauri runtime (native webview). */
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+// ---- Update info ----------------------------------------------------------
+
+export type UpdateInfo = {
+  /** New version string, e.g. "0.2.0" */
+  version: string
+  /** ISO date string from the release manifest */
+  date: string | null
+  /** Markdown release notes / body */
+  body: string | null
+  /** SHA-256 digest of the update bundle (populated if available in manifest) */
+  sha256: string | null
+  /** Whether the update bundle was cryptographically signed */
+  signed: boolean
+  /** The raw Tauri Update object so we can call .downloadAndInstall() */
+  _raw: Update | null
+}
+
+let pendingUpdate: UpdateInfo | null = null
+const updateListeners = new Set<() => void>()
+
+function emitUpdate() {
+  for (const l of updateListeners) l()
+}
+
+/** Subscribe to update-availability changes. */
+export function subscribeUpdate(cb: () => void): () => void {
+  updateListeners.add(cb)
+  return () => updateListeners.delete(cb)
+}
+
+/** Read the current pending update (null = none available / not checked yet). */
+export function getPendingUpdate(): UpdateInfo | null {
+  return pendingUpdate
+}
+
+/** Clear the pending update (e.g. after user dismisses). */
+export function dismissUpdate(): void {
+  pendingUpdate = null
+  emitUpdate()
+}
+
+/** Download and install the pending update, then relaunch. */
+export async function installUpdate(): Promise<void> {
+  if (!pendingUpdate?._raw) return
+  addLog("info", "updates", `Installing update to v${pendingUpdate.version}…`)
+  await pendingUpdate._raw.downloadAndInstall()
+  await relaunch()
 }
 
 export function isHubDevice(): boolean {
@@ -115,16 +164,67 @@ export function reloadDisplay(): void {
 
 
 
-/** Pretend to check for OTA updates. Returns whether an update is available. */
-
+/**
+ * Check for OTA updates via the Tauri updater plugin.
+ *
+ * If an update is available the result is stored in `pendingUpdate` and all
+ * `subscribeUpdate` listeners are notified so the UI can react in real-time.
+ * Returns `true` when an update is available, `false` when up-to-date.
+ */
 export async function checkForUpdates(): Promise<boolean> {
   try {
-    const update = await check();
+    const update = await check()
+    if (!update) {
+      addLog("info", "updates", "No update available — already on latest version")
+      return false
+    }
 
-    return update !== null;
+    // Extract SHA-256 from the body if the release notes embed it.
+    // Convention: a line matching "SHA-256: <hex>" anywhere in the body.
+    const sha256Match = update.body?.match(/SHA-256[:\s]+([a-fA-F0-9]{64})/i)
+    const sha256 = sha256Match ? sha256Match[1] : null
+
+    pendingUpdate = {
+      version: update.version,
+      date: update.date ?? null,
+      body: update.body ?? null,
+      sha256,
+      // Tauri v2 updater enforces signature verification before install, so if
+      // we have a pubkey configured and the check succeeded, the bundle is signed.
+      signed: isTauri(),
+      _raw: update,
+    }
+    emitUpdate()
+    addLog("success", "updates", `Update available: v${update.version}`)
+    return true
   } catch (error) {
-    console.error("Failed to check for updates:", error);
-    throw error; // Let the caller handle errors if desired
+    addLog("error", "updates", `Update check failed: ${error instanceof Error ? error.message : String(error)}`)
+    throw error
+  }
+}
+
+// ---- Real-time update polling ---------------------------------------------
+
+let _updatePollInterval: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Start polling for updates every `intervalMs` milliseconds (default 1 hour).
+ * Safe to call multiple times — only one interval is ever active.
+ */
+export function startUpdatePolling(intervalMs = 60 * 60 * 1000): void {
+  if (_updatePollInterval) return
+  // Run once immediately (non-blocking), then on the interval.
+  void checkForUpdates().catch(() => {})
+  _updatePollInterval = setInterval(() => {
+    void checkForUpdates().catch(() => {})
+  }, intervalMs)
+}
+
+/** Stop the background update poll (call on unmount / cleanup). */
+export function stopUpdatePolling(): void {
+  if (_updatePollInterval) {
+    clearInterval(_updatePollInterval)
+    _updatePollInterval = null
   }
 }
 
