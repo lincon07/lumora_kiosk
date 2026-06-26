@@ -2170,6 +2170,9 @@ export function SettingsView() {
         </div>
       </section>
 
+      {/* Family Members — full CRUD */}
+      <FamilyMembersSection />
+
       {/* Appearance */}
       <section>
         <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Appearance</h2>
