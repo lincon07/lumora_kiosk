@@ -662,17 +662,17 @@ function MemberSheet({
               placeholder="name@family.com"
             />
           </div>
-          {user && draft.account.trim().toLowerCase() !== user.email.toLowerCase() ? (
+          {user && user.email && draft.account.trim().toLowerCase() !== user.email.toLowerCase() ? (
             <button
               type="button"
-              onClick={() => set("account", user.email)}
+              onClick={() => set("account", user.email!)}
               className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-primary"
             >
               <UserCheck className="size-3.5" />
               This is me — link my account ({user.email})
             </button>
           ) : null}
-          {user && draft.account.trim().toLowerCase() === user.email.toLowerCase() ? (
+          {user && user.email && draft.account.trim().toLowerCase() === user.email.toLowerCase() ? (
             <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-member-green">
               <Check className="size-3.5" />
               Linked to your account
