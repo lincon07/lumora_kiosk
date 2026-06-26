@@ -28,6 +28,7 @@ snapshotRouter.get("/", requireAuth, (req, res) => {
     return
   }
 
+  try {
   const members = db
     .prepare("SELECT * FROM members WHERE household_id = ? ORDER BY created_at ASC")
     .all(hid)
@@ -68,9 +69,19 @@ snapshotRouter.get("/", requireAuth, (req, res) => {
     )
     .all(hid)
 
-  const photos = db
-    .prepare("SELECT * FROM photos WHERE household_id = ? ORDER BY created_at DESC")
-    .all(hid)
+  // photos table may not exist in older DB files before migration
+  let photos: unknown[] = []
+  try {
+    photos = db
+      .prepare("SELECT * FROM photos WHERE household_id = ? ORDER BY created_at DESC")
+      .all(hid)
+  } catch {
+    /* table not yet migrated — return empty */
+  }
 
   res.json({ members, calendars, events, chores, lists, list_items, meals, notifications, photos })
+  } catch (err) {
+    console.error("[snapshot] query error:", err)
+    res.status(500).json({ error: "Failed to load snapshot.", detail: String(err) })
+  }
 })

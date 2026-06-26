@@ -50,11 +50,24 @@ import type {
 // Config
 // ---------------------------------------------------------------------------
 
-/** Base URL of the local Express server. Injected by vite.config.ts from
- *  LUMORA_SERVER_URL / VITE_LUMORA_SERVER_URL; falls back to localhost:4000. */
-export const LOCAL_API_BASE: string = (
-  (import.meta.env.VITE_LUMORA_SERVER_URL as string | undefined) ?? "http://localhost:4000"
-).replace(/\/$/, "")
+/** Base URL of the local Express server.
+ *
+ *  In development the Vite proxy forwards /api, /socket.io and /photo-files
+ *  to localhost:4000, so we use an empty string (same-origin) — this avoids
+ *  all CORS / access-control errors in the browser preview.
+ *
+ *  In production (Tauri or a custom deploy) VITE_LUMORA_SERVER_URL must be
+ *  set to the full server address, e.g. "http://192.168.1.10:4000".
+ */
+export const LOCAL_API_BASE: string = (() => {
+  const explicit = import.meta.env.VITE_LUMORA_SERVER_URL as string | undefined
+  // If an explicit URL was provided AND it is not localhost/127, use it.
+  // Otherwise default to "" (same-origin via Vite proxy).
+  if (explicit && !explicit.includes("localhost") && !explicit.includes("127.0.0.1")) {
+    return explicit.replace(/\/$/, "")
+  }
+  return ""
+})()
 
 const API = `${LOCAL_API_BASE}/api/v1`
 

@@ -41,6 +41,27 @@ export default defineConfig(async ({ mode }) => {
       watch: {
         ignored: ["**/src-tauri/**"],
       },
+      // Proxy /api, /socket.io and /photo-files to the Express server so the
+      // browser never makes a cross-origin request — eliminates CORS / access-
+      // control errors in the dev preview entirely.
+      proxy: {
+        "/api": {
+          target: serverUrl,
+          changeOrigin: true,
+          secure: false,
+        },
+        "/socket.io": {
+          target: serverUrl,
+          changeOrigin: true,
+          secure: false,
+          ws: true,
+        },
+        "/photo-files": {
+          target: serverUrl,
+          changeOrigin: true,
+          secure: false,
+        },
+      },
     },
 
     resolve: {
