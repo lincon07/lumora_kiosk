@@ -472,13 +472,12 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       dob: member.dob,
       email: member.account,
     })
-    // Re-sync so any newly created / pending slot appears in the list immediately.
-    try {
-      const fresh = await api.listMembers()
-      setMembers(fresh.map(toMember))
-    } catch {
-      /* keep optimistic state */
-    }
+    // Mark the existing member as pending rather than doing a full re-sync.
+    // A full listMembers() re-sync causes the server's newly-created pending
+    // slot to appear alongside the original member, duplicating the row.
+    setMembers((prev) =>
+      prev.map((m) => (m.id === member.id ? { ...m, pending: true } : m)),
+    )
     return invite
   }, [])
   const cancelInvite = useCallback(async (inviteId: string, memberId: string) => {
