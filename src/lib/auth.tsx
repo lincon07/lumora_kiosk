@@ -40,17 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u)
     setHousehold(h)
     setStatus(u ? "authed" : "guest")
-    
-    // Start kiosk status tracking if we have a household and kiosk is enabled
+
+    // Start / stop kiosk heartbeat tracking when session changes.
     if (u && h && kioskConfig.enabled) {
-      console.log("[v0] Starting kiosk status tracking for household:", h.id)
       startKioskStatusTracking(h.id, "Kiosk Display").catch((err) =>
-        console.error("[v0] Failed to start kiosk status tracking:", err)
+        console.error("[auth] Failed to start kiosk status tracking:", err),
       )
     } else {
-      if (kioskConfig.enabled) {
-        console.log("[v0] Kiosk tracking not started - missing user/household")
-      }
       stopKioskStatusTracking()
     }
   }, [])
@@ -70,27 +66,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applySession])
 
   useEffect(() => {
-    console.log("[v0] Auth Init:", {
-      kioskMode: kioskConfig.enabled,
-      autoSignIn: kioskConfig.autoSignIn,
-      hasEmail: !!kioskConfig.adminEmail,
-      hasPassword: !!kioskConfig.adminPassword,
-    })
-    
     void refresh().then(async () => {
-      // If in kiosk mode and auto-signin is enabled, attempt to sign in
+      // If in kiosk mode and auto-signin is enabled, attempt to sign in with
+      // the configured admin credentials so the kiosk display is always authed.
       if (kioskConfig.autoSignIn && status === "loading") {
-        console.log("[v0] Attempting auto sign-in...")
         try {
           const res = await api.signIn({
             email: kioskConfig.adminEmail!,
             password: kioskConfig.adminPassword!,
           })
-          console.log("[v0] Auto sign-in successful")
           applySession(res.user, res.household)
         } catch (err) {
-          console.error("[Kiosk] Auto sign-in failed:", err)
-          // Fall back to normal auth flow
+          console.error("[auth] Kiosk auto sign-in failed:", err)
         }
       }
     })

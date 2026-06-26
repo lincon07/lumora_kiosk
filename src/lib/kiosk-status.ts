@@ -1,12 +1,21 @@
-import { supabase } from "./supabase"
-import { registerOrClaimKiosk } from "./kiosk-register"
+// ---------------------------------------------------------------------------
+// kiosk-status.ts
+//
+// Publishes periodic heartbeats for this kiosk device to the local Express
+// server at POST /api/v1/kiosk-devices/heartbeat. No Supabase dependency.
+//
+// The liveSocket will relay kiosk_devices:updated events to store.tsx so
+// the settings view sees up-to-date device status without polling.
+// ---------------------------------------------------------------------------
+
+import { LOCAL_API_BASE, tokenStore } from "./local-api"
 
 export interface KioskDeviceStatus {
   id: string
   household_id: string
   device_name: string
-  wifi_signal: number // -30 to -90 dBm
-  ping_latency_ms: number
+  wifi_signal: number      // estimated dBm  (-30 strong → -90 weak)
+  ping_latency_ms: number  // round-trip to local server in ms
   battery_percent?: number
   device_info?: string
   last_heartbeat: string
@@ -15,96 +24,83 @@ export interface KioskDeviceStatus {
 
 let statusInterval: NodeJS.Timeout | null = null
 let currentHouseholdId: string | null = null
+let currentDeviceName: string | null = null
 
-export async function startKioskStatusTracking(householdId: string, deviceName: string = "Kiosk Display") {
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function startKioskStatusTracking(
+  householdId: string,
+  deviceName = "Kiosk Display",
+) {
   currentHouseholdId = householdId
+  currentDeviceName = deviceName
 
-  try {
-    // Register/claim this kiosk on first startup
-    await registerOrClaimKiosk(householdId, deviceName)
-  } catch (err) {
-    console.error("[v0] Failed to register kiosk:", err)
-    // Continue anyway - kiosk status table might not exist yet
-  }
-
-  // Initial publish
   await publishKioskStatus(householdId, deviceName)
 
-  // Publish every 30 seconds
   if (statusInterval) clearInterval(statusInterval)
   statusInterval = setInterval(() => {
-    if (currentHouseholdId) {
-      publishKioskStatus(currentHouseholdId, deviceName).catch((err) =>
-        console.error("[Kiosk] Failed to publish status:", err)
+    if (currentHouseholdId && currentDeviceName) {
+      publishKioskStatus(currentHouseholdId, currentDeviceName).catch((err) =>
+        console.error("[kiosk-status] Failed to publish:", err),
       )
     }
-  }, 30000)
+  }, 30_000)
 }
 
-export async function stopKioskStatusTracking() {
+export function stopKioskStatusTracking() {
   if (statusInterval) {
     clearInterval(statusInterval)
     statusInterval = null
   }
   currentHouseholdId = null
+  currentDeviceName = null
 }
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
 
 async function publishKioskStatus(householdId: string, deviceName: string) {
+  const metrics = await getKioskMetrics()
+  const token = tokenStore.get()
+  if (!token) return
+
   try {
-    const status = await getKioskMetrics()
-
-    console.log("[v0] Publishing kiosk status:", {
-      household_id: householdId,
-      device_name: deviceName,
-      wifi_signal: status.wifi_signal,
-      ping_latency_ms: status.ping_latency_ms,
-      battery_percent: status.battery_percent,
-      is_online: status.is_online,
-    })
-
-    // Upsert into kiosk_devices table
-    const { error } = await supabase.from("kiosk_devices").upsert(
-      {
+    await fetch(`${LOCAL_API_BASE}/api/v1/kiosk-devices/heartbeat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
         household_id: householdId,
         device_name: deviceName,
-        ...status,
-      },
-      { onConflict: "household_id,device_name" }
-    )
-
-    if (error) {
-      console.error("[v0] Kiosk upsert error:", error)
-    } else {
-      console.log("[v0] Kiosk status published successfully")
-    }
+        ...metrics,
+      }),
+    })
   } catch (err) {
-    console.error("[v0] Error publishing kiosk status:", err)
+    console.error("[kiosk-status] heartbeat failed:", err)
   }
 }
 
-async function getKioskMetrics(): Promise<Omit<KioskDeviceStatus, "id" | "household_id" | "device_name">> {
-  // Get WiFi signal strength (simplified - browser doesn't have direct access)
-  // We'll use a heuristic based on connection latency
+async function getKioskMetrics(): Promise<
+  Omit<KioskDeviceStatus, "id" | "household_id" | "device_name">
+> {
   const wifiSignal = await getWiFiSignal()
-
-  // Get ping latency to Supabase
   const pingLatency = await measurePing()
-
-  // Get battery info if available (PWA)
   const batteryPercent = await getBatteryPercent()
-
-  // Get device info
-  const deviceInfo = {
-    platform: navigator.platform,
-    userAgent: navigator.userAgent.substring(0, 100),
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  }
 
   return {
     wifi_signal: wifiSignal,
     ping_latency_ms: pingLatency,
     battery_percent: batteryPercent,
-    device_info: JSON.stringify(deviceInfo),
+    device_info: JSON.stringify({
+      platform: navigator.platform,
+      userAgent: navigator.userAgent.substring(0, 100),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }),
     last_heartbeat: new Date().toISOString(),
     is_online: navigator.onLine,
   }
@@ -112,28 +108,23 @@ async function getKioskMetrics(): Promise<Omit<KioskDeviceStatus, "id" | "househ
 
 async function getWiFiSignal(): Promise<number> {
   try {
-    // Browser doesn't have direct WiFi signal API, estimate based on connection
-    // In a Tauri app, you could use actual system APIs
-    const startTime = performance.now()
-    await fetch("https://www.gstatic.com/generate_204", { method: "HEAD", mode: "no-cors" })
-    const latency = performance.now() - startTime
-
-    // Rough estimate: -30 to -90 dBm based on latency
-    // < 50ms = -30dBm (strong), 50-150ms = -60dBm (good), > 150ms = -90dBm (weak)
-    if (latency < 50) return -30
-    if (latency < 150) return -60
-    return -90
+    const t0 = performance.now()
+    await fetch(`${LOCAL_API_BASE}/health`, { method: "HEAD" })
+    const ms = performance.now() - t0
+    if (ms < 5) return -30
+    if (ms < 20) return -50
+    if (ms < 60) return -65
+    return -80
   } catch {
-    return -75 // Default to medium signal on error
+    return -75
   }
 }
 
 async function measurePing(): Promise<number> {
   try {
-    const startTime = performance.now()
-    await supabase.from("households").select("id").limit(1)
-    const latency = Math.round(performance.now() - startTime)
-    return latency
+    const t0 = performance.now()
+    await fetch(`${LOCAL_API_BASE}/health`, { method: "HEAD" })
+    return Math.round(performance.now() - t0)
   } catch {
     return 0
   }
@@ -141,32 +132,10 @@ async function measurePing(): Promise<number> {
 
 async function getBatteryPercent(): Promise<number | undefined> {
   try {
-    // @ts-ignore - Battery API not in standard types
-    const battery = await navigator.getBattery?.()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const battery = await (navigator as any).getBattery?.()
     return battery ? Math.round(battery.level * 100) : undefined
   } catch {
     return undefined
   }
-}
-
-// Subscribe to realtime updates for status changes
-export function subscribeToKioskStatus(
-  householdId: string,
-  callback: (status: KioskDeviceStatus) => void
-) {
-  return supabase
-    .channel(`kiosk-status:${householdId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "kiosk_devices",
-        filter: `household_id=eq.${householdId}`,
-      },
-      (payload: any) => {
-        callback(payload.new as KioskDeviceStatus)
-      }
-    )
-    .subscribe()
 }

@@ -1,29 +1,28 @@
-"use client"
+// ---------------------------------------------------------------------------
+// kiosk-metrics.ts
+//
+// Device metric collection for kiosk heartbeats.
+// Previously pinged Supabase to measure latency — now pings the local server.
+// ---------------------------------------------------------------------------
 
-import { supabase } from "./supabase"
-
-/**
- * Device metric collection for kiosk heartbeats.
- *
- * Browsers don't expose raw WiFi signal, so we estimate from network latency.
- * In a Tauri build these could be swapped for real system APIs later.
- */
+import { LOCAL_API_BASE } from "./local-api"
 
 export type KioskMetrics = {
-  wifi: number // estimated dBm (-30 strong .. -90 weak)
-  ping: number // ms latency to Supabase
-  battery: number | null // 0-100, if the Battery API is available
-  deviceInfo: string // JSON string: platform / ua / timezone
+  wifi: number     // estimated dBm (-30 strong .. -90 weak)
+  ping: number     // ms round-trip to the local server
+  battery: number | null
+  deviceInfo: string
 }
 
 async function estimateWifi(): Promise<number> {
   try {
     const start = performance.now()
-    await fetch("https://www.gstatic.com/generate_204", { method: "HEAD", mode: "no-cors" })
+    await fetch(`${LOCAL_API_BASE}/health`, { method: "HEAD" })
     const latency = performance.now() - start
-    if (latency < 50) return -30
-    if (latency < 150) return -60
-    return -90
+    if (latency < 5)   return -30
+    if (latency < 20)  return -50
+    if (latency < 60)  return -65
+    return -80
   } catch {
     return -75
   }
@@ -32,7 +31,7 @@ async function estimateWifi(): Promise<number> {
 async function measurePing(): Promise<number> {
   try {
     const start = performance.now()
-    await supabase.from("kiosk_devices").select("id").limit(1)
+    await fetch(`${LOCAL_API_BASE}/health`, { method: "HEAD" })
     return Math.round(performance.now() - start)
   } catch {
     return 0
@@ -41,8 +40,8 @@ async function measurePing(): Promise<number> {
 
 async function readBattery(): Promise<number | null> {
   try {
-    // @ts-ignore - Battery API isn't in the standard lib types
-    const battery = await navigator.getBattery?.()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const battery = await (navigator as any).getBattery?.()
     return battery ? Math.round(battery.level * 100) : null
   } catch {
     return null

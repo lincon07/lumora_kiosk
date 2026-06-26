@@ -25,8 +25,8 @@ import {
   type Photo,
   memberCan,
 } from "./data"
-import { api, isSupabaseApi, syncGuard, type ApiMember, type CreateMemberInput, type Invite } from "./api"
-import { supabase } from "./supabase"
+import { api, syncGuard, type ApiMember, type CreateMemberInput, type Invite } from "./api"
+import { liveSocket, type LiveEvent } from "./local-api"
 import { useOptionalAuth } from "./auth"
 import { notify } from "./push"
 import { type KioskDeviceStatus } from "./kiosk-status"
@@ -248,17 +248,20 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
   // for notifications that arrive *after* the first load (not the backlog).
   const seenNotifIds = useRef<Set<string> | null>(null)
 
-  // Initial live load + Supabase Realtime. The provider only mounts once the
-  // user is signed in. Supabase pushes Postgres changes over a WebSocket (RLS-
-  // scoped to the user's household), so instead of polling we re-fetch and
-  // reconcile whenever a relevant row changes. A focus refresh covers any
-  // events missed while the socket was asleep (e.g. app backgrounded on iOS).
+  // Initial live load + Socket.IO live events.
+  // On mount we fetch the full household snapshot (or the kiosk snapshot in
+  // kiosk mode). After that, Socket.IO events from the local server trigger
+  // targeted state updates — we re-fetch only the affected table on each
+  // "<table>:<action>" event, coalescing rapid bursts with a 400 ms debounce.
+  // A window focus / visibility-change refresh catches anything missed while
+  // the socket was disconnected.
   useEffect(() => {
     let alive = true
 
+    // ---- initial load -------------------------------------------------------
+
     const loadAll = async () => {
-      // Kiosk mode: the device has no user session, so pull the whole household
-      // snapshot through the token-scoped RPC instead of the authed API.
+      // Kiosk mode: device has no user session — fetch via device-token snapshot.
       if (kioskMode) {
         const snap = await fetchKioskSnapshot()
         return {
@@ -284,16 +287,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
         api.listNotifications(),
         api.listPhotos(),
       ])
-      
-      // Fetch kiosk devices for this household if available
-      let kioskDevs: KioskDeviceStatus[] = []
-      try {
-        const { data } = await supabase.from("kiosk_devices").select("*")
-        if (data) kioskDevs = data as KioskDeviceStatus[]
-      } catch {
-        // kiosk_devices table might not exist yet
-      }
-      
+
       return {
         members: m.map(toMember),
         calendars: cals,
@@ -303,7 +297,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
         meals: me,
         notifications: n,
         photos: p,
-        kioskDevices: kioskDevs,
+        kioskDevices: [] as KioskDeviceStatus[],
       }
     }
 
@@ -333,8 +327,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       setPhotos((prev) => reconcile(prev, d.photos))
       setKioskDevices((prev) => reconcile(prev, d.kioskDevices))
 
-      // Surface an OS notification for anything new + unread since last sync
-      // (the "X joined the family" row is created server-side on invite claim).
+      // Surface an OS push for notifications that arrived after initial load.
       const seen = seenNotifIds.current ?? new Set<string>()
       const fresh = d.notifications.filter((n) => !n.read && !seen.has(n.id))
       for (const note of fresh) void notify(note.title, note.body || "")
@@ -344,33 +337,24 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     }
 
     loadAll()
-      .then((d) => {
-        if (alive) apply(d, true)
-      })
-      .catch(() => {
-        /* leave collections empty on failure */
-      })
-      .finally(() => {
-        if (alive) setLoading(false)
-      })
+      .then((d) => { if (alive) apply(d, true) })
+      .catch(() => { /* leave collections empty on failure */ })
+      .finally(() => { if (alive) setLoading(false) })
+
+    // ---- live sync via Socket.IO -------------------------------------------
 
     const tick = async () => {
       if (!alive) return
-      // Defer briefly if a local mutation is still settling, so a realtime echo
-      // of our own write doesn't clobber optimistic state mid-flight.
-      if (syncGuard.isBusy()) {
-        scheduleSync()
-        return
-      }
+      // Skip if a local mutation is still mid-flight — avoids echoing our own write.
+      if (syncGuard.isBusy()) { scheduleSync(); return }
       try {
         const d = await loadAll()
         if (alive) apply(d, false)
       } catch {
-        /* transient; the next change event or focus refresh retries */
+        /* transient; next event retries */
       }
     }
 
-    // Coalesce bursts of change events into a single reload.
     let debounce: ReturnType<typeof setTimeout> | undefined
     function scheduleSync() {
       if (!alive) return
@@ -378,52 +362,24 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       debounce = setTimeout(() => void tick(), 400)
     }
 
-    // All tables that we subscribe to for Realtime changes. In kiosk mode the
-    // anon key's RLS won't scope events to a household, but the broadcast still
-    // fires on any public row change which is sufficient to trigger a re-fetch
-    // of the SECURITY DEFINER kiosk_fetch_all snapshot.
-    const tables = [
-      "members",
-      "invites",
-      "calendars",
-      "events",
-      "chores",
-      "lists",
-      "list_items",
-      "meals",
-      "notifications",
-      "notification_states",
-      "photos",
-      "households",
-      "kiosk_devices",
-    ]
+    // Subscribe to Socket.IO live events. Each "<table>:<action>" event from
+    // the local server triggers a full re-fetch + reconcile of all collections.
+    // For most households the payload is small so a full reload is fast and
+    // keeps the reconcile logic simple.
+    const unsubscribe = liveSocket.subscribe((_event: LiveEvent) => {
+      scheduleSync()
+    })
 
-    let channel: ReturnType<typeof supabase.channel> | undefined
-
-    if (isSupabaseApi || kioskMode) {
-      // Subscribe to Postgres changes on every relevant table.
-      // In authenticated mode RLS scopes events to the user's own household.
-      // In kiosk mode we get unscoped notifications that trigger a full
-      // kiosk_fetch_all re-fetch (the RPC enforces its own token-based scoping).
-      const channelName = kioskMode ? "lumora-kiosk-realtime" : "lumora-realtime"
-      let ch = supabase.channel(channelName)
-      for (const table of tables) {
-        ch = ch.on("postgres_changes", { event: "*", schema: "public", table }, scheduleSync)
-      }
-      channel = ch.subscribe()
-    }
-
+    // Focus / visibility refresh to catch events missed while backgrounded.
     const onFocus = () => scheduleSync()
-    const onVisible = () => {
-      if (!document.hidden) scheduleSync()
-    }
+    const onVisible = () => { if (!document.hidden) scheduleSync() }
     window.addEventListener("focus", onFocus)
     document.addEventListener("visibilitychange", onVisible)
 
     return () => {
       alive = false
       clearTimeout(debounce)
-      if (channel) void supabase.removeChannel(channel)
+      unsubscribe()
       window.removeEventListener("focus", onFocus)
       document.removeEventListener("visibilitychange", onVisible)
     }
