@@ -148,9 +148,9 @@ router.post("/refresh", (req: Request, res: Response) => {
 })
 
 // ---------------------------------------------------------------------------
-// GET /auth/session
+// GET /auth/session  (and /auth/me — client alias)
 // ---------------------------------------------------------------------------
-router.get("/session", requireAuth, (req: Request, res: Response) => {
+router.get(["/session", "/me"], requireAuth, (req: Request, res: Response) => {
   const { sub, householdId, email, name } = (req as AuthRequest).user
   const db = getDb()
   const household = db
