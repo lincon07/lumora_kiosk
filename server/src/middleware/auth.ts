@@ -9,7 +9,7 @@
 import type { Request, Response, NextFunction } from "express"
 import jwt from "jsonwebtoken"
 import type { Socket } from "socket.io"
-import { getOrCreateSecret } from "../db"
+import { getOrCreateSecret, getDb } from "../db"
 import type { JwtPayload, ServerToClientEvents, ClientToServerEvents, SocketData } from "../types"
 
 export type AuthRequest = Request & {
@@ -63,8 +63,20 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   const token = header.slice(7).trim()
   try {
     const payload = verifyToken(token)
-    // Attach userId as a convenience alias for sub so routes don't need
-    // to remember the JWT claim name.
+
+    // Kiosk device tokens are signed without a householdId because the device
+    // may not be paired yet at registration time. If it IS paired, look up the
+    // household_id from the kiosk_devices table so every downstream route
+    // sees a valid householdId and can serve the request normally.
+    if (payload.role === "kiosk" && !payload.householdId) {
+      const row = getDb()
+        .prepare("SELECT household_id FROM kiosk_devices WHERE id = ?")
+        .get(payload.sub) as { household_id: string | null } | undefined
+      if (row?.household_id) {
+        payload.householdId = row.household_id
+      }
+    }
+
     ;(req as AuthRequest).user = { ...payload, userId: payload.sub }
     next()
   } catch (err) {
@@ -106,8 +118,18 @@ export function socketAuth(
   }
   try {
     const payload = verifyToken(token)
+
+    // Same lookup as requireAuth — resolve householdId for paired kiosk devices.
+    let householdId = payload.householdId ?? ""
+    if (payload.role === "kiosk" && !householdId) {
+      const row = getDb()
+        .prepare("SELECT household_id FROM kiosk_devices WHERE id = ?")
+        .get(payload.sub) as { household_id: string | null } | undefined
+      householdId = row?.household_id ?? ""
+    }
+
     socket.data.userId = payload.sub
-    socket.data.householdId = payload.householdId ?? ""
+    socket.data.householdId = householdId
     socket.data.email = payload.email ?? ""
     socket.data.name = payload.name ?? ""
     next()
