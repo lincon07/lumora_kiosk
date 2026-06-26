@@ -564,10 +564,18 @@ async fn factory_reset(app: tauri::AppHandle) -> Result<(), String> {
 /// coordinate transformation (Coordinate Transformation Matrix property).
 #[tauri::command]
 async fn screen_orientation_set(rotation: String) -> Result<(), String> {
-    let valid = ["normal", "left", "right", "inverted"];
+    // "portrait" is an alias for "right" (90° CW) — kept for setup-wizard
+    // compatibility. xrandr only understands normal/left/right/inverted.
+    let valid = ["normal", "left", "right", "inverted", "portrait"];
     if !valid.contains(&rotation.as_str()) {
         return Err(format!("Invalid rotation value: {rotation}"));
     }
+    // Resolve the alias before passing to xrandr.
+    let rotation = if rotation == "portrait" {
+        "right".to_string()
+    } else {
+        rotation
+    };
 
     tokio::task::spawn_blocking(move || {
         // ── Step 1: rotate the display ──────────────────────────────────────
@@ -610,11 +618,12 @@ async fn screen_orientation_set(rotation: String) -> Result<(), String> {
         //
         // The matrix is supplied to xinput as a flat row-major list of 9 floats.
         let matrix: &[&str] = match rotation.as_str() {
-            "normal"   => &["1",  "0", "0",  "0",  "1", "0",  "0", "0", "1"],
-            "right"    => &["0",  "1", "0",  "-1", "0", "1",  "0", "0", "1"],
-            "left"     => &["0", "-1", "1",  "1",  "0", "0",  "0", "0", "1"],
-            "inverted" => &["-1", "0", "1",  "0", "-1", "1",  "0", "0", "1"],
-            _          => return Ok(()), // already validated above
+            "normal"            => &["1",  "0", "0",  "0",  "1", "0",  "0", "0", "1"],
+            // portrait / right: 90° CW — x_new = y_old, y_new = 1 - x_old
+            "right" | "portrait" => &["0",  "1", "0",  "-1", "0", "1",  "0", "0", "1"],
+            "left"              => &["0", "-1", "1",  "1",  "0", "0",  "0", "0", "1"],
+            "inverted"          => &["-1", "0", "1",  "0", "-1", "1",  "0", "0", "1"],
+            _                   => return Ok(()), // already validated above
         };
 
         // Find the first touch or pointer input device via xinput.

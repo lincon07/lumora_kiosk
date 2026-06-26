@@ -32,7 +32,7 @@ export type LocaleResult = {
   raw: string
 }
 
-export type ScreenOrientation = "normal" | "left" | "right" | "inverted"
+export type ScreenOrientation = "normal" | "left" | "right" | "inverted" | "portrait"
 
 export type TimezoneResult = {
   /** IANA timezone identifier, e.g. "America/New_York". */
