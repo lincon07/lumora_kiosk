@@ -4,9 +4,37 @@ import { useRef, useState } from "react"
 import { Heart, ImageIcon, Loader2, Trash2, Upload } from "lucide-react"
 import { useStore } from "@/lib/store"
 import { api } from "@/lib/api"
-import { LOCAL_API_BASE } from "@/lib/local-api"
 import { ConfirmDialog } from "@/components/ui/reusables/confirm-dialog"
+
+import { useAuthenticatedSrc } from "@/hooks/use-authenticated-src"
 import { cn } from "@/lib/utils"
+
+/** Fetches the image with the auth token and renders it via a blob URL. */
+function AuthImg({
+  src,
+  alt,
+  className,
+  width,
+  height,
+}: {
+  src: string
+  alt: string
+  className?: string
+  width?: number
+  height?: number
+}) {
+  const blobSrc = useAuthenticatedSrc(src)
+  return blobSrc ? (
+    <img src={blobSrc} alt={alt} className={className} width={width} height={height} />
+  ) : (
+    <div
+      className={cn("flex items-center justify-center bg-secondary", className)}
+      style={width && height ? { aspectRatio: `${width}/${height}` } : undefined}
+    >
+      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
 
 export function PhotosView() {
   const { photos, can, deletePhoto } = useStore()
@@ -29,12 +57,6 @@ export function PhotosView() {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ""
     }
-  }
-
-  /** Resolve a photo src to an absolute URL served by the local hub server. */
-  const resolveUrl = (src: string) => {
-    if (src.startsWith("http")) return src
-    return `${LOCAL_API_BASE}${src}`
   }
 
   const deletingPhoto = deleteTarget ? photos.find((p) => p.id === deleteTarget) : null
@@ -82,8 +104,8 @@ export function PhotosView() {
     <div className="space-y-4 px-4 py-4">
       {/* Featured / slideshow card */}
       <div className="group relative overflow-hidden rounded-3xl shadow-md">
-        <img
-          src={resolveUrl(featured.src)}
+        <AuthImg
+          src={featured.src}
           alt={featured.caption}
           width={800}
           height={500}
@@ -113,8 +135,8 @@ export function PhotosView() {
         <div className="grid grid-cols-2 gap-3">
           {rest.map((photo) => (
             <div key={photo.id} className="group relative overflow-hidden rounded-2xl shadow-sm">
-              <img
-                src={resolveUrl(photo.src)}
+              <AuthImg
+                src={photo.src}
                 alt={photo.caption}
                 width={400}
                 height={400}
