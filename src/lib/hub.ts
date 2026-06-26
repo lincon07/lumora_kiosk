@@ -1,3 +1,6 @@
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
+
 /**
  * Hub (kiosk device) actions and activity log.
  *
@@ -107,6 +110,35 @@ export async function restartHub(): Promise<void> {
 export function reloadDisplay(): void {
   addLog("info", "system", "Display reloaded")
   window.location.reload()
+}
+
+
+const update = await check();
+if (update) {
+  console.log(
+    `found update ${update.version} from ${update.date} with notes ${update.body}`
+  );
+  let downloaded = 0;
+  let contentLength = 0;
+  // alternatively we could also call update.download() and update.install() separately
+  await update.downloadAndInstall((event) => {
+    switch (event.event) {
+      case 'Started':
+        contentLength = event.data.contentLength;
+        console.log(`started downloading ${event.data.contentLength} bytes`);
+        break;
+      case 'Progress':
+        downloaded += event.data.chunkLength;
+        console.log(`downloaded ${downloaded} from ${contentLength}`);
+        break;
+      case 'Finished':
+        console.log('download finished');
+        break;
+    }
+  });
+
+  console.log('update installed');
+  await relaunch();
 }
 
 /** Pretend to check for OTA updates. Returns whether an update is available. */
