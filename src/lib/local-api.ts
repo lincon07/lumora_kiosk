@@ -62,7 +62,13 @@ const API = `${LOCAL_API_BASE}/api/v1`
 // Token storage (same key kept for backward compat with tokenStore in api.ts)
 // ---------------------------------------------------------------------------
 
-const TOKEN_KEY = "lumora.token"
+const TOKEN_KEY        = "lumora.token"
+const DEVICE_TOKEN_KEY = "lumora.kiosk.deviceToken"
+
+/** Read the kiosk device JWT directly — avoids a circular import with kiosk-session.ts. */
+function getDeviceToken(): string | null {
+  try { return localStorage.getItem(DEVICE_TOKEN_KEY) } catch { return null }
+}
 const REFRESH_KEY = "lumora.refresh"
 
 export const tokenStore = {
@@ -105,7 +111,10 @@ export function getCachedSession(): Session | null {
 // ---------------------------------------------------------------------------
 
 async function req<T>(path: string, method: string, body?: unknown): Promise<T> {
-  const token = tokenStore.get()
+  // Prefer the user token (lumora.token); fall back to the kiosk device token
+  // (lumora.kiosk.deviceToken) so API calls work before the bridge in
+  // kiosk-provider.tsx has had a chance to copy it into tokenStore.
+  const token = tokenStore.get() ?? getDeviceToken()
   const res = await fetch(`${API}${path}`, {
     method,
     headers: {
@@ -266,7 +275,7 @@ class LiveSocket {
     this.householdId = householdId
 
     this.socket = io(LOCAL_API_BASE, {
-      auth: { token: tokenStore.get() ?? "" },
+      auth: { token: tokenStore.get() ?? getDeviceToken() ?? "" },
       transports: ["websocket"],
       reconnection: true,
       reconnectionDelay: 2000,
