@@ -28,6 +28,14 @@ function rowToMember(r: Record<string, unknown>): Member {
 // GET /members
 router.get("/", (req: Request, res: Response) => {
   const { householdId } = (req as AuthRequest).user
+
+  // Kiosk device tokens have no householdId until claimed — return empty list
+  // rather than throwing a SQLite error from an undefined bind parameter.
+  if (!householdId) {
+    res.json([])
+    return
+  }
+
   const rows = getDb()
     .prepare("SELECT * FROM members WHERE household_id = ? ORDER BY created_at")
     .all(householdId) as Record<string, unknown>[]
@@ -37,6 +45,12 @@ router.get("/", (req: Request, res: Response) => {
 // POST /members
 router.post("/", (req: Request, res: Response) => {
   const { householdId, sub } = (req as AuthRequest).user
+
+  if (!householdId) {
+    res.status(403).json({ error: "Device is not yet linked to a household." })
+    return
+  }
+
   const { name, color = "blue", role = "adult", dob, account, permissions = [], linkSelf } = req.body as {
     name?: string
     color?: string
