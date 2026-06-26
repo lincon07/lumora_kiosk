@@ -639,6 +639,24 @@ export function createLocalApi(): LumoraApi {
       })
       return toPhoto(row)
     },
+    async uploadPhoto(file: File, caption = "") {
+      // Multipart POST — the server writes the file to $HOME/.lumora/photos/
+      // and returns the photo row with a /photo-files/<filename> src URL.
+      const token = tokenStore.get()
+      const form = new FormData()
+      form.append("file", file)
+      form.append("caption", caption || file.name.replace(/\.[^.]+$/, ""))
+      const res = await fetch(`${LOCAL_API_BASE}/api/v1/photos`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error ?? `Upload failed (${res.status})`)
+      }
+      return toPhoto(await res.json() as Row)
+    },
     async deletePhoto(id: string) {
       await req(`/photos/${id}`, "DELETE")
     },

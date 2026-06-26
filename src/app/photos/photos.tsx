@@ -3,26 +3,14 @@
 import { useRef, useState } from "react"
 import { Heart, ImageIcon, Loader2, Trash2, Upload } from "lucide-react"
 import { useStore } from "@/lib/store"
-import { supabase } from "@/lib/supabase"
-import { isSupabaseConfigured } from "@/lib/supabase"
+import { api } from "@/lib/api"
+import { LOCAL_API_BASE } from "@/lib/local-api"
 import { ConfirmDialog } from "@/components/ui/reusables/confirm-dialog"
 import { cn } from "@/lib/utils"
 
-async function uploadToStorage(file: File, householdId: string): Promise<string> {
-  const ext = file.name.split(".").pop() ?? "jpg"
-  const path = `${householdId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-  const { error } = await supabase.storage.from("photos").upload(path, file, {
-    cacheControl: "3600",
-    upsert: false,
-  })
-  if (error) throw new Error(error.message)
-  const { data } = supabase.storage.from("photos").getPublicUrl(path)
-  return data.publicUrl
-}
-
 export function PhotosView() {
-  const { photos, can, addPhoto, deletePhoto } = useStore()
-  const canManage = can("photos" as any) // photos uses same "photos" area
+  const { photos, can, deletePhoto } = useStore()
+  const canManage = can("photos" as any)
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
@@ -33,35 +21,20 @@ export function PhotosView() {
     try {
       for (const file of Array.from(files)) {
         if (!file.type.startsWith("image/")) continue
-        let src: string
-
-        if (isSupabaseConfigured) {
-          // Get the household id from the first available auth session
-          const {
-            data: { user },
-          } = await supabase.auth.getUser()
-          // Derive household id via RPC (same as the store does)
-          const { data: hhData } = await supabase
-            .from("members")
-            .select("household_id")
-            .eq("user_id", user?.id ?? "")
-            .single()
-          const householdId = hhData?.household_id ?? "shared"
-          src = await uploadToStorage(file, householdId)
-        } else {
-          // In mock/dev mode use a local object URL
-          src = URL.createObjectURL(file)
-        }
-
-        const caption = file.name.replace(/\.[^.]+$/, "")
-        addPhoto({ src, caption })
+        await api.uploadPhoto(file)
       }
     } catch (err) {
-      console.error("[v0] photo upload error:", err)
+      console.error("[photos] upload error:", err)
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ""
     }
+  }
+
+  /** Resolve a photo src to an absolute URL served by the local hub server. */
+  const resolveUrl = (src: string) => {
+    if (src.startsWith("http")) return src
+    return `${LOCAL_API_BASE}${src}`
   }
 
   const deletingPhoto = deleteTarget ? photos.find((p) => p.id === deleteTarget) : null
@@ -95,7 +68,7 @@ export function PhotosView() {
               accept="image/*"
               multiple
               className="hidden"
-              onChange={(e) => handleFiles(e.target.files)}
+              onChange={(e) => void handleFiles(e.target.files)}
             />
           </>
         ) : null}
@@ -108,9 +81,9 @@ export function PhotosView() {
   return (
     <div className="space-y-4 px-4 py-4">
       {/* Featured / slideshow card */}
-      <div className="relative overflow-hidden rounded-3xl shadow-md group">
+      <div className="group relative overflow-hidden rounded-3xl shadow-md">
         <img
-          src={featured.src || "/placeholder.svg"}
+          src={resolveUrl(featured.src)}
           alt={featured.caption}
           width={800}
           height={500}
@@ -141,7 +114,7 @@ export function PhotosView() {
           {rest.map((photo) => (
             <div key={photo.id} className="group relative overflow-hidden rounded-2xl shadow-sm">
               <img
-                src={photo.src || "/placeholder.svg"}
+                src={resolveUrl(photo.src)}
                 alt={photo.caption}
                 width={400}
                 height={400}
@@ -172,7 +145,7 @@ export function PhotosView() {
         </div>
       ) : null}
 
-      {/* Upload button (hidden on kiosk) */}
+      {/* Upload button */}
       {canManage ? (
         <>
           <button
@@ -181,7 +154,7 @@ export function PhotosView() {
             onClick={() => fileRef.current?.click()}
             className={cn(
               "flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-3 text-sm font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-primary",
-              uploading && "opacity-50 cursor-not-allowed",
+              uploading && "cursor-not-allowed opacity-50",
             )}
           >
             {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
@@ -193,7 +166,7 @@ export function PhotosView() {
             accept="image/*"
             multiple
             className="hidden"
-            onChange={(e) => handleFiles(e.target.files)}
+            onChange={(e) => void handleFiles(e.target.files)}
           />
         </>
       ) : null}
