@@ -947,36 +947,164 @@ function InviteSheet({
   )
 }
 
+// ─── Member status badge ────────────────────────────────────────────────────
+function MemberStatusBadge({ member }: { member: Member }) {
+  if (member.pending) {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-member-amber/15 px-2 py-0.5 text-[10px] font-semibold text-member-amber">
+        <Send className="size-2.5" />
+        Invite sent
+      </span>
+    )
+  }
+  if (member.userId || member.account) {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-member-green/15 px-2 py-0.5 text-[10px] font-semibold text-member-green">
+        <UserCheck className="size-2.5" />
+        Linked
+      </span>
+    )
+  }
+  return (
+    <span className="flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+      <Unplug className="size-2.5" />
+      Not linked
+    </span>
+  )
+}
+
+// ─── Per-member action sheet ─────────────────────────────────────────────────
+function MemberActionSheet({
+  open,
+  member,
+  onClose,
+  onEdit,
+  onInvite,
+  onDelete,
+}: {
+  open: boolean
+  member: Member | null
+  onClose: () => void
+  onEdit: () => void
+  onInvite: () => void
+  onDelete: () => void
+}) {
+  if (!member) return null
+  const age = calculateAge(member.dob)
+  return (
+    <BottomSheet open={open} onClose={onClose} title={member.name}>
+      <div className="space-y-3">
+        {/* Summary card */}
+        <div className="flex items-center gap-4 rounded-2xl bg-secondary/50 px-4 py-3">
+          <MemberAvatar member={member} size="lg" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-base font-semibold">{member.name}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-card px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                {roleLabels[member.role]}
+              </span>
+              {age !== null && (
+                <span className="text-xs text-muted-foreground">{age} yrs</span>
+              )}
+              <MemberStatusBadge member={member} />
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <button
+          type="button"
+          onClick={onEdit}
+          className="flex w-full items-center gap-3 rounded-2xl bg-secondary/50 px-4 py-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-card">
+            <User className="size-4 text-primary" />
+          </span>
+          Edit profile
+          <ChevronRight className="ml-auto size-4 text-muted-foreground" />
+        </button>
+
+        <button
+          type="button"
+          onClick={onInvite}
+          className="flex w-full items-center gap-3 rounded-2xl bg-secondary/50 px-4 py-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-card">
+            <QrCodeIcon className="size-4 text-primary" />
+          </span>
+          {member.pending ? "Resend invite" : "Invite to app"}
+          <ChevronRight className="ml-auto size-4 text-muted-foreground" />
+        </button>
+
+        <button
+          type="button"
+          onClick={onDelete}
+          className="flex w-full items-center gap-3 rounded-2xl bg-destructive/8 px-4 py-3.5 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/12"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-destructive/10">
+            <Trash2 className="size-4 text-destructive" />
+          </span>
+          Remove member
+        </button>
+      </div>
+    </BottomSheet>
+  )
+}
+
+// ─── Full Members section ─────────────────────────────────────────────────────
 function FamilyMembersSection() {
-  const { members, deleteMember, can, addMember, inviteMember: storeinvite } = useStore()
+  const { members, deleteMember, can, addMember } = useStore()
   const canManageMembers = can("members")
-  const [sheetOpen, setSheetOpen] = useState(false)
-  const [editing, setEditing] = useState<Member | null>(null)
+
+  // Sheet states
+  const [actionMember, setActionMember] = useState<Member | null>(null)
+  const [editOpen, setEditOpen]         = useState(false)
+  const [editTarget, setEditTarget]     = useState<Member | null>(null)
+  const [inviteTarget, setInviteTarget] = useState<Member | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Member | null>(null)
-  const [invitingMember, setInvitingMember] = useState<Member | null>(null)
-  // "quick invite" — create a basic member then immediately open invite sheet
-  const [quickInviteOpen, setQuickInviteOpen] = useState(false)
-  const [quickInviteName, setQuickInviteName] = useState("")
-  const [quickInviteRole, setQuickInviteRole] = useState<MemberRole>("adult")
-  const [quickInviteColor, setQuickInviteColor] = useState<MemberColor>("blue")
-  const [quickBusy, setQuickBusy] = useState(false)
-  const [quickError, setQuickError] = useState<string | null>(null)
-  const [pendingInviteMember, setPendingInviteMember] = useState<Member | null>(null)
+
+  // Add-new sheet
+  const [addOpen, setAddOpen] = useState(false)
+
+  // Quick-invite (create + invite in one flow)
+  const [quickOpen, setQuickOpen]       = useState(false)
+  const [quickName, setQuickName]       = useState("")
+  const [quickRole, setQuickRole]       = useState<MemberRole>("adult")
+  const [quickColor, setQuickColor]     = useState<MemberColor>("blue")
+  const [quickBusy, setQuickBusy]       = useState(false)
+  const [quickError, setQuickError]     = useState<string | null>(null)
+  const [quickInviteAfter, setQuickInviteAfter] = useState<Member | null>(null)
 
   const people = members.filter((m) => m.id !== "family")
 
-  const openAdd = () => {
-    setEditing(null)
-    setSheetOpen(true)
-  }
-  const openEdit = (m: Member) => {
-    setEditing(m)
-    setSheetOpen(true)
+  // Open action sheet for a card
+  const openAction = (m: Member) => {
+    if (!canManageMembers) return
+    setActionMember(m)
   }
 
-  // Quick-invite: create a minimal member then open the invite QR sheet
-  const handleQuickInvite = async () => {
-    const name = quickInviteName.trim()
+  // From action sheet → edit
+  const goEdit = () => {
+    setEditTarget(actionMember)
+    setActionMember(null)
+    setEditOpen(true)
+  }
+
+  // From action sheet → invite
+  const goInvite = () => {
+    setInviteTarget(actionMember)
+    setActionMember(null)
+  }
+
+  // From action sheet → delete confirm
+  const goDelete = () => {
+    setConfirmDelete(actionMember)
+    setActionMember(null)
+  }
+
+  // Quick-invite submit
+  const submitQuickInvite = async () => {
+    const name = quickName.trim()
     if (!name) return
     setQuickBusy(true)
     setQuickError(null)
@@ -984,11 +1112,10 @@ function FamilyMembersSection() {
       const { api: localApi } = await import("@/lib/api")
       const created = await localApi.createMember({
         name,
-        color: quickInviteColor,
-        role: quickInviteRole,
+        color: quickColor,
+        role: quickRole,
         permissions: [],
       })
-      // Translate ApiMember → Member for the invite sheet
       const member: Member = {
         id: created.id,
         name: created.name,
@@ -1000,11 +1127,10 @@ function FamilyMembersSection() {
         permissions: created.permissions,
         pending: false,
       }
-      // Optimistically add to member list then open invite sheet
       addMember(member)
-      setQuickInviteOpen(false)
-      setQuickInviteName("")
-      setPendingInviteMember(member)
+      setQuickOpen(false)
+      setQuickName("")
+      setQuickInviteAfter(member)
     } catch (e) {
       setQuickError(e instanceof Error ? e.message : "Could not add member.")
     } finally {
@@ -1013,126 +1139,142 @@ function FamilyMembersSection() {
   }
 
   return (
-    <section>
-      <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Family Members</h2>
-      <div className="overflow-hidden rounded-3xl bg-card shadow-sm">
-        <ul className="divide-y divide-border/60">
+    <section className="space-y-3">
+      {/* Section header */}
+      <div className="flex items-center justify-between px-1">
+        <h2 className="text-sm font-semibold text-muted-foreground">Family Members</h2>
+        <span className="text-xs text-muted-foreground">{people.length} {people.length === 1 ? "person" : "people"}</span>
+      </div>
+
+      {/* Member grid */}
+      {people.length === 0 ? (
+        /* Empty state */
+        <div className="flex flex-col items-center gap-3 rounded-3xl border-2 border-dashed border-border bg-card/50 py-12">
+          <span className="flex size-14 items-center justify-center rounded-full bg-secondary">
+            <UserPlus className="size-6 text-muted-foreground" />
+          </span>
+          <div className="text-center">
+            <p className="text-sm font-semibold">No members yet</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">Add people so they can be assigned tasks, events and more.</p>
+          </div>
+          {canManageMembers && (
+            <button
+              type="button"
+              onClick={() => { setEditTarget(null); setAddOpen(true) }}
+              className="mt-1 flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+            >
+              <UserPlus className="size-4" />
+              Add first member
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {people.map((m) => {
             const age = calculateAge(m.dob)
             return (
-              <li key={m.id}>
-                <button
-                  type="button"
-                  onClick={() => openEdit(m)}
-                  disabled={!canManageMembers}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left disabled:cursor-default"
-                >
-                  <MemberAvatar member={m} size="md" />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium">{m.name}</span>
-                      <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {roleLabels[m.role]}
-                      </span>
-                    </span>
-                    <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      {age !== null ? <span>{age} yrs</span> : <span>No DOB</span>}
-                      <span aria-hidden>·</span>
-                      {m.pending ? (
-                        <span className="flex items-center gap-1 text-member-amber">
-                          <Send className="size-3" />
-                          Invited
-                        </span>
-                      ) : m.userId || m.account ? (
-                        <span className="flex items-center gap-1 text-member-green">
-                          <UserCheck className="size-3" />
-                          Linked
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1">
-                          <Unplug className="size-3" />
-                          Not linked
-                        </span>
-                      )}
-                    </span>
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => openAction(m)}
+                disabled={!canManageMembers}
+                className="group relative flex flex-col overflow-hidden rounded-3xl bg-card shadow-sm transition-transform active:scale-95 disabled:cursor-default"
+              >
+                {/* Color accent bar */}
+                <div className={cn("h-1.5 w-full", memberBg[m.color])} />
+
+                <div className="flex flex-col items-center gap-2 px-3 pb-4 pt-3">
+                  <MemberAvatar member={m} size="lg" />
+                  <div className="w-full text-center">
+                    <p className="truncate text-sm font-semibold leading-tight">{m.name}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {roleLabels[m.role]}{age !== null ? ` · ${age} yrs` : ""}
+                    </p>
+                  </div>
+                  <MemberStatusBadge member={m} />
+                </div>
+
+                {canManageMembers && (
+                  <span className="absolute right-2 top-3 opacity-0 transition-opacity group-hover:opacity-100">
+                    <ChevronRight className="size-3.5 text-muted-foreground" />
                   </span>
-                  {canManageMembers ? (
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                  ) : null}
-                </button>
-              </li>
+                )}
+              </button>
             )
           })}
-        </ul>
-        {canManageMembers ? (
-          <div className="divide-y divide-border/60 border-t border-border/60">
-            <button
-              type="button"
-              onClick={openAdd}
-              className="flex w-full items-center gap-2 px-4 py-3 text-sm font-semibold text-primary"
-            >
-              <UserPlus className="size-4" />
-              Add member
-            </button>
-            <button
-              type="button"
-              onClick={() => { setQuickInviteOpen(true); setQuickError(null) }}
-              className="flex w-full items-center gap-2 px-4 py-3 text-sm font-semibold text-primary"
-            >
-              <QrCodeIcon className="size-4" />
-              Invite someone to join
-            </button>
-          </div>
-        ) : null}
-      </div>
 
-      {/* Edit / add member sheet */}
+          {/* Add card — always last in grid */}
+          {canManageMembers && (
+            <button
+              type="button"
+              onClick={() => { setEditTarget(null); setAddOpen(true) }}
+              className="flex flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-border bg-card/50 py-8 transition-colors hover:bg-card"
+            >
+              <span className="flex size-10 items-center justify-center rounded-full bg-secondary">
+                <UserPlus className="size-5 text-muted-foreground" />
+              </span>
+              <span className="text-xs font-semibold text-muted-foreground">Add member</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Bottom CTAs */}
+      {canManageMembers && people.length > 0 && (
+        <button
+          type="button"
+          onClick={() => { setQuickOpen(true); setQuickError(null) }}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-card py-3.5 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-secondary"
+        >
+          <QrCodeIcon className="size-4 text-primary" />
+          Invite someone to join
+        </button>
+      )}
+
+      {/* Per-member action sheet */}
+      <MemberActionSheet
+        open={!!actionMember}
+        member={actionMember}
+        onClose={() => setActionMember(null)}
+        onEdit={goEdit}
+        onInvite={goInvite}
+        onDelete={goDelete}
+      />
+
+      {/* Edit sheet (also used for Add when editTarget is null) */}
       <MemberSheet
-        open={sheetOpen}
-        member={editing}
-        onClose={() => setSheetOpen(false)}
+        open={editOpen || addOpen}
+        member={editOpen ? editTarget : null}
+        onClose={() => { setEditOpen(false); setAddOpen(false) }}
         onDelete={
-          editing && canManageMembers
-            ? () => {
-                setConfirmDelete(editing)
-                setSheetOpen(false)
-              }
+          editOpen && editTarget && canManageMembers
+            ? () => { setConfirmDelete(editTarget); setEditOpen(false) }
             : undefined
         }
         onInvite={
-          editing
-            ? () => {
-                setInvitingMember(editing)
-                setSheetOpen(false)
-              }
+          editOpen && editTarget
+            ? () => { setInviteTarget(editTarget); setEditOpen(false) }
             : undefined
         }
       />
 
-      {/* Invite QR sheet — opened from "Invite to app" inside edit sheet */}
+      {/* Invite QR sheet */}
       <InviteSheet
-        open={!!invitingMember}
-        member={invitingMember}
-        onClose={() => setInvitingMember(null)}
+        open={!!inviteTarget || !!quickInviteAfter}
+        member={inviteTarget ?? quickInviteAfter}
+        onClose={() => { setInviteTarget(null); setQuickInviteAfter(null) }}
       />
 
-      {/* Invite QR sheet — opened from "Invite someone to join" quick flow */}
-      <InviteSheet
-        open={!!pendingInviteMember}
-        member={pendingInviteMember}
-        onClose={() => setPendingInviteMember(null)}
-      />
-
-      {/* Quick-invite bottom sheet */}
+      {/* Quick-invite sheet (name → invite) */}
       <BottomSheet
-        open={quickInviteOpen}
-        onClose={() => setQuickInviteOpen(false)}
+        open={quickOpen}
+        onClose={() => setQuickOpen(false)}
         title="Invite someone to join"
         footer={
           <button
             type="button"
-            onClick={handleQuickInvite}
-            disabled={!quickInviteName.trim() || quickBusy}
+            onClick={submitQuickInvite}
+            disabled={!quickName.trim() || quickBusy}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-40"
           >
             {quickBusy ? <Loader2 className="size-4 animate-spin" /> : <QrCodeIcon className="size-4" />}
@@ -1142,34 +1284,26 @@ function FamilyMembersSection() {
       >
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Enter a name for this person. You&apos;ll get a QR code and a manual code they can use to
-            set up their own account.
+            Enter their name and role. You&apos;ll get a QR code and a manual code they scan on their
+            phone to set up their own account.
           </p>
-
           <Field label="Name">
             <input
               className={inputClass}
-              value={quickInviteName}
-              onChange={(e) => setQuickInviteName(e.target.value)}
+              value={quickName}
+              onChange={(e) => setQuickName(e.target.value)}
               placeholder="Full name"
               autoFocus
             />
           </Field>
-
           <Field label="Role">
             <div className="grid grid-cols-4 gap-1.5">
               {roleOptions.map((r) => {
-                const active = quickInviteRole === r
+                const active = quickRole === r
                 return (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setQuickInviteRole(r)}
-                    aria-pressed={active}
-                    className={cn(
-                      "rounded-xl py-2 text-xs font-semibold transition-colors",
-                      active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground",
-                    )}
+                  <button key={r} type="button" onClick={() => setQuickRole(r)} aria-pressed={active}
+                    className={cn("rounded-xl py-2 text-xs font-semibold transition-colors",
+                      active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground")}
                   >
                     {roleLabels[r]}
                   </button>
@@ -1177,37 +1311,26 @@ function FamilyMembersSection() {
               })}
             </div>
           </Field>
-
           <Field label="Color">
-            <div className="flex gap-2">
+            <div className="flex gap-2.5">
               {colorOptions.map((c) => {
-                const active = quickInviteColor === c
+                const active = quickColor === c
                 return (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setQuickInviteColor(c)}
-                    aria-label={c}
-                    aria-pressed={active}
-                    className={cn(
-                      "size-8 rounded-full transition-transform",
-                      memberBg[c],
-                      active ? "ring-2 ring-foreground ring-offset-2 ring-offset-card" : "hover:scale-105",
-                    )}
+                  <button key={c} type="button" onClick={() => setQuickColor(c)} aria-label={c} aria-pressed={active}
+                    className={cn("size-9 rounded-full transition-transform", memberBg[c],
+                      active ? "ring-2 ring-foreground ring-offset-2 ring-offset-card" : "hover:scale-105")}
                   />
                 )
               })}
             </div>
           </Field>
-
-          {quickError ? (
-            <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">
-              {quickError}
-            </p>
-          ) : null}
+          {quickError && (
+            <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{quickError}</p>
+          )}
         </div>
       </BottomSheet>
 
+      {/* Delete confirm */}
       <ConfirmDialog
         open={!!confirmDelete}
         title={`Remove ${confirmDelete?.name ?? "member"}?`}
