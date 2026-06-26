@@ -49,17 +49,52 @@ export default defineConfig(async ({ mode }) => {
           target: serverUrl,
           changeOrigin: true,
           secure: false,
+          configure: (proxy) => {
+            // Suppress EPIPE / connection-refused noise when the Express
+            // server isn't up yet or drops a keep-alive connection.
+            proxy.on("error", (err, _req, _res) => {
+              if ((err as NodeJS.ErrnoException).code !== "ECONNREFUSED") {
+                console.warn("[proxy /api]", err.message)
+              }
+            })
+          },
         },
         "/socket.io": {
           target: serverUrl,
           changeOrigin: true,
           secure: false,
+          // ws:true tells Vite to also proxy WebSocket upgrade requests that
+          // arrive on this path prefix. EPIPE errors occur when the upstream
+          // socket closes before Vite finishes writing; we suppress them so
+          // they don't fill the terminal.
           ws: true,
+          configure: (proxy) => {
+            proxy.on("error", (err) => {
+              const code = (err as NodeJS.ErrnoException).code
+              if (code !== "EPIPE" && code !== "ECONNREFUSED" && code !== "ECONNRESET") {
+                console.warn("[proxy /socket.io]", err.message)
+              }
+            })
+            proxy.on("proxyReqWsError", (err) => {
+              const code = (err as NodeJS.ErrnoException).code
+              if (code !== "EPIPE" && code !== "ECONNREFUSED" && code !== "ECONNRESET") {
+                console.warn("[proxy /socket.io ws]", err.message)
+              }
+            })
+          },
         },
         "/photo-files": {
           target: serverUrl,
           changeOrigin: true,
           secure: false,
+          configure: (proxy) => {
+            proxy.on("error", (err) => {
+              const code = (err as NodeJS.ErrnoException).code
+              if (code !== "ECONNREFUSED") {
+                console.warn("[proxy /photo-files]", err.message)
+              }
+            })
+          },
         },
       },
     },
