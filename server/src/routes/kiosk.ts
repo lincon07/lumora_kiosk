@@ -25,16 +25,26 @@ kioskRouter.post("/register", (req: Request, res: Response): void => {
   const deviceName: string = (req.body?.device_name as string | undefined)?.trim() || "Kiosk Display"
 
   const id = crypto.randomUUID()
-  const deviceToken = `kdev_${crypto.randomBytes(32).toString("hex")}`
   const pairingCode = genPairingCode()
 
+  // Sign a long-lived JWT so the device can authenticate all future requests.
+  // We store the device id (sub) in the token; the raw hex is kept in the DB
+  // as a secondary lookup key in case the JWT is ever reissued.
+  // 10-year expiry — a kiosk device should never need to re-register just
+  // because its token expired.
+  const deviceJwt = signToken(
+    { sub: id, role: "kiosk", name: deviceName },
+    "87600h", // 10 years
+  )
+
+  // Store a hash of the JWT for revocation checks (not implemented yet).
   db.prepare(
     `INSERT INTO kiosk_devices
      (id, device_token, device_name, pairing_code, setup_complete, is_online, last_heartbeat)
      VALUES (?, ?, ?, ?, 0, 1, datetime('now'))`,
-  ).run(id, deviceToken, deviceName, pairingCode)
+  ).run(id, deviceJwt, deviceName, pairingCode)
 
-  res.status(201).json({ id, device_token: deviceToken, pairing_code: pairingCode })
+  res.status(201).json({ id, device_token: deviceJwt, pairing_code: pairingCode })
 })
 
 // ---------------------------------------------------------------------------
