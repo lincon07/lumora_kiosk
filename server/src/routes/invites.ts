@@ -182,4 +182,29 @@ router.post("/claim", async (req: Request, res: Response) => {
   })
 })
 
+// DELETE /invites/:id — revoke / cancel an outstanding invite (authenticated)
+router.delete("/:id", requireAuth, (req: Request, res: Response) => {
+  const { householdId } = (req as AuthRequest).user
+  const { id } = req.params
+  const db = getDb()
+
+  const invite = db
+    .prepare("SELECT id, member_id FROM invites WHERE id = ? AND household_id = ?")
+    .get(id, householdId) as { id: string; member_id: string } | undefined
+
+  if (!invite) {
+    res.status(404).json({ error: "Invite not found." })
+    return
+  }
+
+  db.transaction(() => {
+    db.prepare("DELETE FROM invites WHERE id = ?").run(invite.id)
+    // Clear the pending flag on the member slot so it stops showing "Invited".
+    db.prepare("UPDATE members SET pending = 0 WHERE id = ? AND household_id = ?")
+      .run(invite.member_id, householdId)
+  })()
+
+  res.status(204).end()
+})
+
 export { router as invitesRouter }

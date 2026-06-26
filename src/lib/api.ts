@@ -52,6 +52,8 @@ export type ApiMember = {
 }
 
 export type Invite = {
+  /** Database row id — used to cancel/revoke the invite. */
+  id: string
   /** Opaque token embedded in the QR code. */
   token: string
   /** Short human-typable fallback code, e.g. "K3F-9Q2". */
@@ -130,6 +132,8 @@ export interface LumoraApi {
 
   /** Create an unclaimed member slot + invite (returns QR token + code). */
   createInvite(input: CreateInviteInput): Promise<Invite>
+  /** Revoke an outstanding invite (clears pending flag on the member slot). */
+  deleteInvite(id: string): Promise<void>
   /** Look up an invite by token or code (for the claim screen preview). */
   getInvite(tokenOrCode: string): Promise<Invite | null>
   /** Invited person creates their account + profile, claiming the slot. */
@@ -204,7 +208,7 @@ export const syncGuard = {
 /** Method names that change server state (vs. read-only list*/
 const MUTATING_METHODS = new Set<keyof LumoraApi>([
   "createMember", "updateMember", "deleteMember",
-  "createInvite", "claimInvite",
+  "createInvite", "deleteInvite", "claimInvite",
   "createCalendar", "updateCalendar", "deleteCalendar",
   "createEvent", "updateEvent", "deleteEvent",
   "createChore", "updateChore", "deleteChore",
