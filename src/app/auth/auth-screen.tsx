@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { Apple, Loader2, Sparkles } from "lucide-react"
 import { useAuth } from "@/lib/auth"
-import { isMockApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { ClaimFlow } from "./claim-flow"
 
@@ -173,11 +172,7 @@ export function AuthScreen() {
           I have an invite
         </button>
 
-        {isMockApi ? (
-          <p className="mt-6 text-center text-xs text-muted-foreground text-pretty">
-            Demo mode — accounts are stored locally. Connect Supabase to enable the live backend.
-          </p>
-        ) : null}
+
       </div>
     </main>
   )

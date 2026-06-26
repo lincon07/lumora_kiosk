@@ -236,7 +236,4 @@ function withMutationGuard(adapter: LumoraApi): LumoraApi {
 
 import { createLocalApi } from "./local-api"
 
-export const isMockApi = false
-export const isSupabaseApi = false
-
 export const api: LumoraApi = withMutationGuard(createLocalApi())

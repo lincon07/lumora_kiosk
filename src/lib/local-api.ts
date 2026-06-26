@@ -50,9 +50,10 @@ import type {
 // Config
 // ---------------------------------------------------------------------------
 
-/** Base URL of the local Express server. Falls back to localhost in dev. */
+/** Base URL of the local Express server. Injected by vite.config.ts from
+ *  LUMORA_SERVER_URL / VITE_LUMORA_SERVER_URL; falls back to localhost:4000. */
 export const LOCAL_API_BASE: string = (
-  (import.meta.env.VITE_LOCAL_API_URL as string | undefined) ?? "http://localhost:4000"
+  (import.meta.env.VITE_LUMORA_SERVER_URL as string | undefined) ?? "http://localhost:4000"
 ).replace(/\/$/, "")
 
 const API = `${LOCAL_API_BASE}/api/v1`
