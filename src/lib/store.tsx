@@ -469,6 +469,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     if (!user) return null
     const byUserId = members.find((m) => m.userId && m.userId === user.id)
     if (byUserId) return byUserId
+    if (!user.email) return null
     const email = user.email.toLowerCase()
     return members.find((m) => m.account?.toLowerCase() === email) ?? null
   }, [members, user])
