@@ -38,8 +38,6 @@ export function KioskAppShell() {
   const head = headers[tab]
 
   return (
-    {/* h-dvh + overflow-hidden pins the shell to the viewport so only the
-        content area scrolls — sidebar, header and status bar stay static. */}
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
       {/* System status bar — WiFi, date, clock — always visible at top */}
       <SystemStatusBar />
