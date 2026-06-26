@@ -11,6 +11,7 @@ import { MealsView } from "@/app/meals/meals"
 import { PhotosView } from "@/app/photos/photos"
 import { SettingsView } from "@/app/settings/settings"
 import { useStore, type TabKey } from "@/lib/store"
+import { SystemStatusBar } from "@/components/ui/reusables/system-status-bar"
 
 const todaySubtitle = new Date().toLocaleDateString(undefined, {
   weekday: "long",
@@ -37,29 +38,34 @@ export function KioskAppShell() {
   const head = headers[tab]
 
   return (
-    <div className="flex min-h-dvh bg-background">
-      <SideNav active={tab} onChange={setTab} />
+    <div className="flex min-h-dvh flex-col bg-background">
+      {/* System status bar — WiFi, date, clock */}
+      <SystemStatusBar />
 
-      <div className="flex flex-1 flex-col">
-        <HeaderNav title={head.title} subtitle={head.subtitle} />
-        {head.showMembers ? <MemberChips /> : null}
+      <div className="flex flex-1 overflow-hidden">
+        <SideNav active={tab} onChange={setTab} />
 
-        <main className="flex-1 overflow-auto">
-          {loading && tab !== "settings" ? (
-            <div className="flex items-center justify-center py-24">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="mx-auto max-w-6xl px-4 py-4">
-              {tab === "calendar" && <CalendarView />}
-              {tab === "chores" && <ChoresView />}
-              {tab === "lists" && <ListsView />}
-              {tab === "meals" && <MealsView />}
-              {tab === "photos" && <PhotosView />}
-              {tab === "settings" && <SettingsView />}
-            </div>
-          )}
-        </main>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <HeaderNav title={head.title} subtitle={head.subtitle} />
+          {head.showMembers ? <MemberChips /> : null}
+
+          <main className="flex-1 overflow-auto">
+            {loading && tab !== "settings" ? (
+              <div className="flex items-center justify-center py-24">
+                <Loader2 className="size-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="mx-auto max-w-6xl px-4 py-4">
+                {tab === "calendar" && <CalendarView />}
+                {tab === "chores" && <ChoresView />}
+                {tab === "lists" && <ListsView />}
+                {tab === "meals" && <MealsView />}
+                {tab === "photos" && <PhotosView />}
+                {tab === "settings" && <SettingsView />}
+              </div>
+            )}
+          </main>
+        </div>
       </div>
     </div>
   )

@@ -193,21 +193,32 @@ export function KioskProvider({ children }: { children: ReactNode }) {
         })
         setDeviceState(nextLocal)
         setupCompleteRef.current = true
-
-        // Mirror to Supabase (Lumora Cloud).
-        await saveSetup(values)
-        await refresh()
-
-        // Advance: paired -> ready, else show pairing.
-        setPhase(pairedRef.current ? "ready" : "pairing")
       } catch (err) {
-        console.error("[kiosk] completeSetup error:", err)
+        console.error("[kiosk] completeSetup local persist error:", err)
         setSetupError(
           err instanceof Error ? err.message : "Couldn't save your setup. Try again.",
         )
-      } finally {
         setSavingSetup(false)
+        return
       }
+
+      // Mirror to Supabase (Lumora Cloud). This is best-effort — if the RPC
+      // isn't deployed yet or the network is unavailable, we still advance
+      // because the local device-state is the on-device source of truth.
+      try {
+        await saveSetup(values)
+        await refresh()
+      } catch (err) {
+        console.error("[kiosk] completeSetup cloud sync error (non-fatal):", err)
+        // Surface a soft warning but don't block advancing.
+        setSetupError(
+          "Setup saved locally. Cloud sync failed — reconnect to sync later.",
+        )
+      }
+
+      // Advance regardless of cloud sync outcome.
+      setPhase(pairedRef.current ? "ready" : "pairing")
+      setSavingSetup(false)
     },
     [refresh],
   )
