@@ -17,14 +17,14 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 20
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu
 
-      - name: install ARM64 cross compiler
+      - name: install ARM64 cross compiler and dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -37,13 +37,14 @@ jobs:
       - name: install frontend dependencies
         run: npm install
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: build
+        run: npm run tauri build -- --target aarch64-unknown-linux-gnu
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PKG_CONFIG_SYSROOT_DIR: /
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
+
+      - name: upload deb
+        uses: actions/upload-artifact@v4
         with:
-          tagName: v__VERSION__
-          releaseName: Lumora Kiosk v__VERSION__
-          releaseBody: See assets to download and install.
-          releaseDraft: false
-          prerelease: false
-          args: --target aarch64-unknown-linux-gnu
+          name: lumora-kiosk-arm64
+          path: src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb
