@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, type ReactNode } from "react"
+import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -38,9 +39,13 @@ export function BottomSheet({
     }
   }, [open, requestClose])
 
-  if (!open) return null
+  // Ensure we have a stable DOM target for the portal (avoids SSR mismatch).
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
-  return (
+  if (!open || !mounted) return null
+
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div
         className="absolute inset-0 bg-black/40 animate-in fade-in"
@@ -71,7 +76,8 @@ export function BottomSheet({
         <div className="space-y-4">{children}</div>
         {footer ? <div className="mt-6">{footer}</div> : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
