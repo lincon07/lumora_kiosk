@@ -547,19 +547,32 @@ async fn factory_reset(app: tauri::AppHandle) -> Result<(), String> {
     std::process::exit(0);
 }
 
-/// Set the physical screen rotation via xrandr.
+/// Set the physical screen rotation via xrandr AND remap the touch input matrix
+/// via xinput so touch coordinates stay aligned with the rotated display.
 ///
-/// Detects the first connected display output at runtime so this works
-/// regardless of whether the Pi is connected via HDMI-1, HDMI-2, etc.
-/// Rotation must be one of: "normal" | "left" | "right" | "inverted".
+/// Detects the first connected display output and the first touch/pointer input
+/// device at runtime. Rotation must be one of:
+///   "normal" | "left" | "right" | "inverted"
+///
+/// Touch coordinate transformation matrices per rotation:
+///   normal   →  1  0  0  /  0  1  0  /  0  0  1   (identity)
+///   right    →  0  1  0  / -1  0  1  /  0  0  1   (90° CW)
+///   left     →  0 -1  1  /  1  0  0  /  0  0  1   (90° CCW)
+///   inverted → -1  0  1  /  0 -1  1  /  0  0  1   (180°)
+///
+/// These are the standard 3×3 affine matrices used by Xorg for input device
+/// coordinate transformation (Coordinate Transformation Matrix property).
 #[tauri::command]
 async fn screen_orientation_set(rotation: String) -> Result<(), String> {
     let valid = ["normal", "left", "right", "inverted"];
     if !valid.contains(&rotation.as_str()) {
         return Err(format!("Invalid rotation value: {rotation}"));
     }
+
     tokio::task::spawn_blocking(move || {
-        // Detect the first connected output (e.g. "HDMI-1", "DSI-1").
+        // ── Step 1: rotate the display ──────────────────────────────────────
+        //
+        // Detect the first connected output (e.g. "HDMI-1", "DSI-1", "eDP-1").
         let probe = Command::new("xrandr").output().unwrap_or_else(|_| {
             std::process::Output {
                 status: std::process::ExitStatus::default(),
@@ -575,16 +588,79 @@ async fn screen_orientation_set(rotation: String) -> Result<(), String> {
             .unwrap_or("HDMI-1")
             .to_string();
 
-        let result = Command::new("xrandr")
+        let xrandr_result = Command::new("xrandr")
             .args(["--output", &display, "--rotate", &rotation])
             .output()
             .map_err(|e| format!("xrandr failed: {e}"))?;
 
-        if result.status.success() {
-            Ok(())
-        } else {
-            Err(String::from_utf8_lossy(&result.stderr).trim().to_string())
+        if !xrandr_result.status.success() {
+            return Err(String::from_utf8_lossy(&xrandr_result.stderr).trim().to_string());
         }
+
+        // ── Step 2: remap touch input to match the rotated display ──────────
+        //
+        // The coordinate transformation matrix maps raw touch device coordinates
+        // (always 0..1 in each axis) into the rotated screen space.
+        // Each rotation needs a different 3×3 affine matrix:
+        //
+        //   normal:   identity — no remapping needed
+        //   right:    90° CW  — x_new = y_old,  y_new = 1 - x_old
+        //   left:     90° CCW — x_new = 1 - y_old, y_new = x_old
+        //   inverted: 180°    — x_new = 1 - x_old, y_new = 1 - y_old
+        //
+        // The matrix is supplied to xinput as a flat row-major list of 9 floats.
+        let matrix: &[&str] = match rotation.as_str() {
+            "normal"   => &["1",  "0", "0",  "0",  "1", "0",  "0", "0", "1"],
+            "right"    => &["0",  "1", "0",  "-1", "0", "1",  "0", "0", "1"],
+            "left"     => &["0", "-1", "1",  "1",  "0", "0",  "0", "0", "1"],
+            "inverted" => &["-1", "0", "1",  "0", "-1", "1",  "0", "0", "1"],
+            _          => return Ok(()), // already validated above
+        };
+
+        // Find the first touch or pointer input device via xinput.
+        // We look for keywords that identify touchscreen panels on common kiosk
+        // hardware (DSI/LCD touch panels, USB HID touch overlays, etc.).
+        let xinput_list = Command::new("xinput").arg("list").output();
+        let touch_id: Option<String> = match xinput_list {
+            Ok(out) => {
+                let text = String::from_utf8_lossy(&out.stdout);
+                text.lines()
+                    .find(|l| {
+                        let lo = l.to_lowercase();
+                        (lo.contains("touch")
+                            || lo.contains("wacom")
+                            || lo.contains("pen")
+                            || lo.contains("stylus")
+                            || lo.contains("pointer"))
+                            && !lo.contains("master")
+                            && !lo.contains("virtual")
+                    })
+                    .and_then(|l| {
+                        // xinput list lines look like:
+                        //   ↳ Touchscreen  id=7  [slave  pointer  (2)]
+                        // Extract the numeric id after "id=".
+                        l.split("id=")
+                            .nth(1)
+                            .and_then(|s| s.split_whitespace().next())
+                            .map(|s| s.to_string())
+                    })
+            }
+            Err(_) => None,
+        };
+
+        if let Some(id) = touch_id {
+            // Build xinput set-prop command:
+            //   xinput set-prop <id> "Coordinate Transformation Matrix" <9 floats>
+            let mut args: Vec<&str> =
+                vec!["set-prop", &id, "Coordinate Transformation Matrix"];
+            args.extend_from_slice(matrix);
+
+            let _ = Command::new("xinput").args(&args).output();
+            // Ignore xinput errors — if the device doesn't support this property
+            // (e.g. a trackpad) we still want the display rotation to succeed.
+        }
+
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
