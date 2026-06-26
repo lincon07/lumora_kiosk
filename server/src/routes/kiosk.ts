@@ -143,6 +143,79 @@ kioskRouter.post("/heartbeat", requireAuth, (req: Request, res: Response): void 
 })
 
 // ---------------------------------------------------------------------------
+// GET /devices — list all kiosk devices paired to the caller's household
+//
+// Called by iOS / mobile clients with a user JWT.
+// ---------------------------------------------------------------------------
+kioskRouter.get("/devices", requireAuth, (req: Request, res: Response): void => {
+  const db = getDb()
+  const { householdId } = req.user!
+
+  if (!householdId) {
+    res.json([])
+    return
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT id, device_name, household_id,
+              ping_latency_ms AS ping_ms,
+              battery_percent AS battery_pct,
+              wifi_signal,
+              last_heartbeat
+       FROM kiosk_devices
+       WHERE household_id = ?`,
+    )
+    .all(householdId) as Record<string, unknown>[]
+
+  res.json(
+    rows.map((r) => ({
+      device_id: r.id as string,
+      device_name: (r.device_name as string | null) ?? "Lumora Kiosk",
+      household_id: r.household_id as string,
+      ping_ms: r.ping_ms != null ? Number(r.ping_ms) : null,
+      battery_pct: r.battery_pct != null ? Number(r.battery_pct) : null,
+      wifi_signal: r.wifi_signal != null ? Number(r.wifi_signal) : null,
+      last_heartbeat: (r.last_heartbeat as string | null) ?? null,
+    })),
+  )
+})
+
+// ---------------------------------------------------------------------------
+// DELETE /devices/:deviceId — unpair a kiosk from the household (user JWT)
+//
+// A household member can unpair any device belonging to their household.
+// ---------------------------------------------------------------------------
+kioskRouter.delete("/devices/:deviceId", requireAuth, (req: Request, res: Response): void => {
+  const db = getDb()
+  const { householdId } = req.user!
+  const { deviceId } = req.params
+
+  if (!householdId) {
+    res.status(403).json({ error: "Only authenticated household members can unpair a device." })
+    return
+  }
+
+  const device = db
+    .prepare("SELECT id FROM kiosk_devices WHERE id = ? AND household_id = ?")
+    .get(deviceId, householdId) as { id: string } | undefined
+
+  if (!device) {
+    res.status(404).json({ error: "Device not found in your household." })
+    return
+  }
+
+  const newCode = genPairingCode()
+  db.prepare(
+    `UPDATE kiosk_devices
+     SET household_id = NULL, pairing_code = ?, setup_complete = 0
+     WHERE id = ?`,
+  ).run(newCode, deviceId)
+
+  res.status(204).end()
+})
+
+// ---------------------------------------------------------------------------
 // POST /claim — household member claims a device by pairing code
 //
 // Called by a member (user JWT in Authorization header), not the device.
