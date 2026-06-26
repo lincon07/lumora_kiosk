@@ -7,18 +7,21 @@ on:
 
 jobs:
   publish-tauri:
-    permissions:
-      contents: write
-
+    name: Build Linux ARM64
     runs-on: ubuntu-24.04-arm
 
-    steps:
-      - uses: actions/checkout@v4
+    permissions:
+      contents: read
 
-      - name: Setup Node
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
+          cache: npm
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -27,19 +30,32 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            xdg-utils \
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
             patchelf
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build
         run: npm run tauri build
 
-      - name: Upload .deb
+      - name: Upload Debian package
         uses: actions/upload-artifact@v4
         with:
-          name: lumora-kiosk-linux-arm64
+          name: lumora-kiosk-linux-arm64-deb
           path: src-tauri/target/release/bundle/deb/*.deb
+
+      - name: Upload RPM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumora-kiosk-linux-arm64-rpm
+          path: src-tauri/target/release/bundle/rpm/*.rpm
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumora-kiosk-linux-arm64-appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
