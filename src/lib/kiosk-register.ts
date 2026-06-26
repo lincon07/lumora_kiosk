@@ -1,4 +1,13 @@
-import { supabase } from "./supabase"
+// ---------------------------------------------------------------------------
+// kiosk-register.ts
+//
+// Thin wrapper kept for backward compatibility.
+// Previously called Supabase directly; now delegates to kiosk-session which
+// calls the local Express server.
+// ---------------------------------------------------------------------------
+
+import { ensureRegistered, getDeviceName } from "./kiosk-session"
+import { LOCAL_API_BASE, tokenStore } from "./local-api"
 
 export interface KioskRegistration {
   id: string
@@ -8,78 +17,50 @@ export interface KioskRegistration {
   claimed_at: string | null
 }
 
-/** Check if kiosk is registered and claim it if needed */
-export async function registerOrClaimKiosk(householdId: string, deviceName: string = "Kiosk Display"): Promise<KioskRegistration> {
-  try {
-    console.log("[v0] Checking/registering kiosk:", { householdId, deviceName })
+/** Check if kiosk is registered; register it if not. */
+export async function registerOrClaimKiosk(
+  householdId: string,
+  deviceName = "Kiosk Display",
+): Promise<KioskRegistration> {
+  await ensureRegistered(deviceName)
 
-    // Try to find existing kiosk registration
-    const { data: existing, error: selectError } = await supabase
-      .from("kiosk_devices")
-      .select("id, household_id, device_name, created_at")
-      .eq("household_id", householdId)
-      .eq("device_name", deviceName)
-      .single()
+  // Look up the current device record from the local server.
+  const token = tokenStore.get()
+  const res = await fetch(`${LOCAL_API_BASE}/api/v1/kiosk/state`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
 
-    if (existing) {
-      console.log("[v0] Kiosk already registered:", existing.id)
-      return {
-        id: existing.id,
-        household_id: householdId,
-        device_name: deviceName,
-        is_registered: true,
-        claimed_at: existing.created_at,
-      }
+  if (!res.ok) {
+    return {
+      id: "",
+      household_id: householdId,
+      device_name: deviceName || getDeviceName(),
+      is_registered: false,
+      claimed_at: null,
     }
+  }
 
-    // If no error and no data, create new registration
-    if (!selectError || selectError.code === "PGRST116") {
-      console.log("[v0] Creating new kiosk registration...")
-      const { data: newKiosk, error: insertError } = await supabase
-        .from("kiosk_devices")
-        .insert({
-          household_id: householdId,
-          device_name: deviceName,
-          wifi_signal: 0,
-          ping_latency_ms: 0,
-          is_online: true,
-          device_info: JSON.stringify({
-            platform: typeof navigator !== "undefined" ? navigator.platform : "Unknown",
-            userAgent: typeof navigator !== "undefined" ? navigator.userAgent.substring(0, 100) : "Unknown",
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          }),
-        })
-        .select("id, household_id, device_name, created_at")
-        .single()
+  const data = await res.json() as {
+    device_id?: string
+    household_id?: string
+    device_name?: string
+    found?: boolean
+  }
 
-      if (insertError) {
-        console.error("[v0] Failed to register kiosk:", insertError)
-        throw insertError
-      }
-
-      if (newKiosk) {
-        console.log("[v0] Kiosk registered successfully:", newKiosk.id)
-        return {
-          id: newKiosk.id,
-          household_id: householdId,
-          device_name: deviceName,
-          is_registered: true,
-          claimed_at: newKiosk.created_at,
-        }
-      }
-    }
-
-    throw new Error("Failed to register kiosk: Unknown error")
-  } catch (err) {
-    console.error("[v0] Kiosk registration error:", err)
-    throw err
+  return {
+    id: data.device_id ?? "",
+    household_id: data.household_id ?? householdId,
+    device_name: data.device_name ?? deviceName,
+    is_registered: !!data.found,
+    claimed_at: null,
   }
 }
 
-/** Generate a QR code URL for claiming this kiosk from iOS app */
-export function generateKioskClaimQRCode(householdId: string, deviceName: string = "Kiosk Display"): string {
-  // QR code data format: kiosk://claim/{householdId}/{deviceName}
-  const data = `kiosk://claim/${householdId}/${encodeURIComponent(deviceName)}`
-  // Use QR code API to generate visual code
+/** Generate a QR code URL for claiming this kiosk from the mobile app. */
+export function generateKioskClaimQRCode(
+  _householdId: string,
+  deviceName = "Kiosk Display",
+): string {
+  const data = `kiosk://claim/${encodeURIComponent(deviceName)}`
   return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(data)}`
 }

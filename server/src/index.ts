@@ -27,6 +27,8 @@ import { listsRouter } from "./routes/lists"
 import { mealsRouter } from "./routes/meals"
 import { notificationsRouter } from "./routes/notifications"
 import { photosRouter } from "./routes/photos"
+import { snapshotRouter } from "./routes/snapshot"
+import { kioskRouter } from "./routes/kiosk"
 
 import type { ServerToClientEvents, ClientToServerEvents, SocketData } from "./types"
 
@@ -97,6 +99,10 @@ app.use("/api/v1/lists", listsRouter)
 app.use("/api/v1/meals", mealsRouter)
 app.use("/api/v1/notifications", notificationsRouter)
 app.use("/api/v1/photos", photosRouter)
+app.use("/api/v1/snapshot", snapshotRouter)
+app.use("/api/v1/kiosk", kioskRouter)
+// Alias used by kiosk-status.ts heartbeat publisher
+app.use("/api/v1/kiosk-devices", kioskRouter)
 
 // Health check
 app.get("/health", (_req, res) => {
