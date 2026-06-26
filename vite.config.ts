@@ -17,8 +17,23 @@ export default defineConfig(async ({ mode }) => {
   const serverUrl =
     env.VITE_LUMORA_SERVER_URL || env.LUMORA_SERVER_URL || "http://localhost:4000"
 
+  // Inline plugin that suppresses EPIPE / ECONNRESET noise from Vite's own
+  // internal WebSocket server (HMR). These errors fire when Tauri's WebView
+  // drops the WS connection mid-write — they are not fatal and clutter the
+  // terminal. The `configure()` callbacks on proxy rules don't cover this path.
+  const suppressWsNoise = {
+    name: "suppress-ws-noise",
+    configureServer(server: { wss?: { on?: (event: string, cb: (err: Error) => void) => void } }) {
+      server.wss?.on?.("error", (err: Error) => {
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === "EPIPE" || code === "ECONNRESET" || code === "ECONNREFUSED") return
+        console.error("[vite wss]", err)
+      })
+    },
+  }
+
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), suppressWsNoise],
 
     define: {
       // Exposed to frontend code as import.meta.env.VITE_LUMORA_SERVER_URL

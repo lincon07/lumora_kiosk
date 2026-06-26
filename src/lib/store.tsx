@@ -26,7 +26,7 @@ import {
   memberCan,
 } from "./data"
 import { api, syncGuard, type ApiMember, type CreateMemberInput, type Invite } from "./api"
-import { liveSocket, type LiveEvent } from "./local-api"
+import { liveSocket, tokenStore, type LiveEvent } from "./local-api"
 import { useOptionalAuth } from "./auth"
 import { notify } from "./push"
 import { type KioskDeviceStatus } from "./kiosk-status"
@@ -250,6 +250,19 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
   // for notifications that arrive *after* the first load (not the backlog).
   const seenNotifIds = useRef<Set<string> | null>(null)
 
+  // In kiosk mode, track whether the device token has been bridged into
+  // tokenStore. We subscribe to tokenStore changes so the main useEffect
+  // re-runs the moment doRegister() calls tokenStore.set() — ensuring
+  // loadAll() fires with a valid Bearer token even if it first ran before
+  // registration completed.
+  const [tokenReady, setTokenReady] = useState(() => !!tokenStore.get())
+  useEffect(() => {
+    if (!kioskMode) return
+    if (tokenStore.get()) { setTokenReady(true); return }
+    const unsub = tokenStore.subscribe(() => { setTokenReady(true) })
+    return unsub
+  }, [kioskMode])
+
   // Initial live load + Socket.IO live events.
   // On mount we fetch the full household snapshot (or the kiosk snapshot in
   // kiosk mode). After that, Socket.IO events from the local server trigger
@@ -261,6 +274,11 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     let alive = true
 
     // ---- initial load -------------------------------------------------------
+
+    // In kiosk mode, don't attempt to load data until the device token has
+    // been registered and bridged into tokenStore. Without a token every
+    // request returns empty collections.
+    if (kioskMode && !tokenReady) return
 
     const loadAll = async () => {
       // Kiosk mode: device has no user session — fetch via device-token snapshot.
@@ -394,7 +412,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       document.removeEventListener("visibilitychange", onVisible)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kioskMode, auth?.household?.id])
+  }, [kioskMode, auth?.household?.id, tokenReady])
 
   const clearHighlight = useCallback(() => setHighlight(null), [])
 
