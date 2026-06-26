@@ -388,9 +388,19 @@ function HubActionsSection() {
   }, [toast])
 
   const onCheckUpdates = async () => {
-    const available = await checkForUpdates()
-    setToast(available ? "Update available — installing" : "You're on the latest version")
-  }
+    try {
+      const available = await checkForUpdates();
+
+      if (available) {
+        setToast("Update available!");
+        // Open update dialog, ask user to install, etc.
+      } else {
+        setToast("You're on the latest version");
+      }
+    } catch {
+      setToast("Failed to check for updates");
+    }
+  };
 
   const onClearCache = async () => {
     await clearCache()
@@ -425,15 +435,15 @@ function HubActionsSection() {
           description="Free up cached web data"
           onClick={onClearCache}
         />
-          {can("hub") ? (
-            <ActionRow
-              icon={Power}
-              label="Restart hub"
-              description="Reboot the kiosk device"
-              onClick={() => setConfirmRestart(true)}
-              destructive
-            />
-          ) : null}
+        {can("hub") ? (
+          <ActionRow
+            icon={Power}
+            label="Restart hub"
+            description="Reboot the kiosk device"
+            onClick={() => setConfirmRestart(true)}
+            destructive
+          />
+        ) : null}
       </div>
 
       {toast ? (
@@ -797,7 +807,7 @@ function InviteSheet({
     setCopied(false)
     setCopiedLink(false)
     generate()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, member])
 
   // QR payload the claim flow understands (token + human-typable code).
@@ -1058,8 +1068,8 @@ function FamilyMembersSection() {
 
   // Sheet states
   const [actionMember, setActionMember] = useState<Member | null>(null)
-  const [editOpen, setEditOpen]         = useState(false)
-  const [editTarget, setEditTarget]     = useState<Member | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<Member | null>(null)
   const [inviteTarget, setInviteTarget] = useState<Member | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Member | null>(null)
 
@@ -1067,12 +1077,12 @@ function FamilyMembersSection() {
   const [addOpen, setAddOpen] = useState(false)
 
   // Quick-invite (create + invite in one flow)
-  const [quickOpen, setQuickOpen]       = useState(false)
-  const [quickName, setQuickName]       = useState("")
-  const [quickRole, setQuickRole]       = useState<MemberRole>("adult")
-  const [quickColor, setQuickColor]     = useState<MemberColor>("blue")
-  const [quickBusy, setQuickBusy]       = useState(false)
-  const [quickError, setQuickError]     = useState<string | null>(null)
+  const [quickOpen, setQuickOpen] = useState(false)
+  const [quickName, setQuickName] = useState("")
+  const [quickRole, setQuickRole] = useState<MemberRole>("adult")
+  const [quickColor, setQuickColor] = useState<MemberColor>("blue")
+  const [quickBusy, setQuickBusy] = useState(false)
+  const [quickError, setQuickError] = useState<string | null>(null)
   const [quickInviteAfter, setQuickInviteAfter] = useState<Member | null>(null)
 
   const people = members.filter((m) => m.id !== "family")
@@ -1797,9 +1807,9 @@ const SUPPORTED_TIMEZONES = [
 ]
 
 const ORIENTATION_OPTIONS: { value: ScreenOrientation; label: string; description: string }[] = [
-  { value: "normal",   label: "Landscape",          description: "Standard horizontal" },
-  { value: "left",     label: "Portrait (left)",    description: "90° counter-clockwise" },
-  { value: "right",    label: "Portrait (right)",   description: "90° clockwise" },
+  { value: "normal", label: "Landscape", description: "Standard horizontal" },
+  { value: "left", label: "Portrait (left)", description: "90° counter-clockwise" },
+  { value: "right", label: "Portrait (right)", description: "90° clockwise" },
   { value: "inverted", label: "Landscape (flipped)", description: "Upside-down" },
 ]
 
@@ -1890,19 +1900,19 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
 
   const filteredLangs = langSearch.trim()
     ? SUPPORTED_LANGUAGES.filter(
-        (l) =>
-          l.label.toLowerCase().includes(langSearch.toLowerCase()) ||
-          l.native.toLowerCase().includes(langSearch.toLowerCase()) ||
-          l.code.toLowerCase().includes(langSearch.toLowerCase()),
-      )
+      (l) =>
+        l.label.toLowerCase().includes(langSearch.toLowerCase()) ||
+        l.native.toLowerCase().includes(langSearch.toLowerCase()) ||
+        l.code.toLowerCase().includes(langSearch.toLowerCase()),
+    )
     : SUPPORTED_LANGUAGES
 
   const filteredTzs = tzSearch.trim()
     ? SUPPORTED_TIMEZONES.filter(
-        (t) =>
-          t.label.toLowerCase().includes(tzSearch.toLowerCase()) ||
-          t.tz.toLowerCase().includes(tzSearch.toLowerCase()),
-      )
+      (t) =>
+        t.label.toLowerCase().includes(tzSearch.toLowerCase()) ||
+        t.tz.toLowerCase().includes(tzSearch.toLowerCase()),
+    )
     : SUPPORTED_TIMEZONES
 
   return (
@@ -2099,7 +2109,7 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
 export function SettingsView() {
   const { clearNotifications, can } = useStore()
   const authCtx = useOptionalAuth()
-  const signOut = authCtx?.signOut ?? (async () => {})
+  const signOut = authCtx?.signOut ?? (async () => { })
   const { state: kioskState, deviceState, unpair } = useKiosk()
   const [confirm, setConfirm] = useState<null | "signout" | "clear" | "reset" | "delete" | "unpair">(null)
   const [factoryResetOpen, setFactoryResetOpen] = useState(false)
@@ -2121,7 +2131,7 @@ export function SettingsView() {
       title: "Clear hub data?",
       message: "All events, chores, lists and meals will be permanently removed. This cannot be undone.",
       confirmLabel: "Clear data",
-      onConfirm: () => {},
+      onConfirm: () => { },
     },
     delete: {
       title: "Delete account?",
