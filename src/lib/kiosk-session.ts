@@ -101,9 +101,20 @@ async function kioskReq<T>(path: string, method: string, body?: unknown): Promis
  * Ensure this device has a token. Registers a fresh unclaimed device on first
  * launch. Uses a module-level promise lock to prevent race conditions.
  */
+/** True if the stored token looks like a real HS256 JWT (3 dot-separated parts). */
+function isJwt(token: string): boolean {
+  return token.split(".").length === 3
+}
+
 export async function ensureRegistered(deviceName?: string): Promise<string | null> {
   const existing = getDeviceToken()
-  if (existing) return existing
+  // Discard legacy raw hex tokens from older builds — they are not JWTs
+  // and will always be rejected by the server's requireAuth middleware.
+  if (existing && isJwt(existing)) return existing
+  if (existing && !isJwt(existing)) {
+    console.warn("[kiosk-session] Discarding non-JWT device token, re-registering.")
+    clearDeviceToken()
+  }
 
   if (_registerPromise) return _registerPromise
 

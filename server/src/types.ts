@@ -157,10 +157,11 @@ export type KioskDevice = {
 // ---------------------------------------------------------------------------
 
 export type JwtPayload = {
-  sub: string        // user id
-  householdId: string
-  email: string
-  name: string
+  sub: string           // user id OR kiosk device id
+  householdId?: string  // absent for unregistered kiosk tokens
+  email?: string        // absent for kiosk tokens
+  name?: string         // absent for kiosk tokens
+  role?: "kiosk" | "member" | "admin"
   iat?: number
   exp?: number
 }

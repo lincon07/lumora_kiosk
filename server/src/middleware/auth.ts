@@ -13,18 +13,21 @@ import { getOrCreateSecret } from "../db"
 import type { JwtPayload, ServerToClientEvents, ClientToServerEvents, SocketData } from "../types"
 
 export type AuthRequest = Request & {
-  user: JwtPayload
+  user: JwtPayload & { userId: string }
 }
 
 // ---------------------------------------------------------------------------
 // Token helpers
 // ---------------------------------------------------------------------------
 
-/** Sign a new access token (24h expiry). */
-export function signToken(payload: Omit<JwtPayload, "iat" | "exp">): string {
+/** Sign a new access token (default 24h expiry). Pass expiresIn to override. */
+export function signToken(
+  payload: Omit<JwtPayload, "iat" | "exp">,
+  expiresIn: string = "24h",
+): string {
   return jwt.sign(payload, getOrCreateSecret(), {
     algorithm: "HS256",
-    expiresIn: "24h",
+    expiresIn,
   })
 }
 
@@ -60,7 +63,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   const token = header.slice(7).trim()
   try {
     const payload = verifyToken(token)
-    ;(req as AuthRequest).user = payload
+    // Attach userId as a convenience alias for sub so routes don't need
+    // to remember the JWT claim name.
+    ;(req as AuthRequest).user = { ...payload, userId: payload.sub }
     next()
   } catch (err) {
     const msg = err instanceof jwt.TokenExpiredError ? "Token expired." : "Invalid token."
