@@ -1169,7 +1169,7 @@ function FamilyMembersSection() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {people.map((m) => {
             const age = calculateAge(m.dob)
             return (
@@ -1178,7 +1178,7 @@ function FamilyMembersSection() {
                 type="button"
                 onClick={() => openAction(m)}
                 disabled={!canManageMembers}
-                className="group relative flex flex-col overflow-hidden rounded-3xl bg-card shadow-sm transition-transform active:scale-95 disabled:cursor-default"
+                className="group relative flex w-36 shrink-0 flex-col overflow-hidden rounded-3xl bg-card shadow-sm transition-transform active:scale-95 disabled:cursor-default"
               >
                 {/* Color accent bar */}
                 <div className={cn("h-1.5 w-full", memberBg[m.color])} />
@@ -1203,12 +1203,12 @@ function FamilyMembersSection() {
             )
           })}
 
-          {/* Add card — always last in grid */}
+          {/* Add card — always last in row */}
           {canManageMembers && (
             <button
               type="button"
               onClick={() => { setEditTarget(null); setAddOpen(true) }}
-              className="flex flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-border bg-card/50 py-8 transition-colors hover:bg-card"
+              className="flex w-36 shrink-0 flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-border bg-card/50 py-8 transition-colors hover:bg-card"
             >
               <span className="flex size-10 items-center justify-center rounded-full bg-secondary">
                 <UserPlus className="size-5 text-muted-foreground" />
