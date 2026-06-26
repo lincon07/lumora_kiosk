@@ -13,11 +13,13 @@ import {
 import {
   ensureRegistered,
   fetchKioskState,
+  getDeviceToken,
   saveSetup,
   sendHeartbeat,
   unpairKiosk,
   type KioskState,
 } from "./kiosk-session"
+import { tokenStore } from "./local-api"
 import { collectKioskMetrics } from "./kiosk-metrics"
 import { notify } from "./push"
 import {
@@ -147,6 +149,10 @@ export function KioskProvider({ children }: { children: ReactNode }) {
         REGISTER_TIMEOUT_MS,
         "Local server did not respond in time. Make sure lumora-server is running.",
       )
+      // Bridge the device JWT into the shared tokenStore so that store.tsx
+      // API calls (listChores, listEvents, etc.) send a valid Bearer token.
+      const deviceJwt = getDeviceToken()
+      if (deviceJwt) tokenStore.set(deviceJwt)
       return true
     } catch (err) {
       console.error("[kiosk] registration error:", err)
