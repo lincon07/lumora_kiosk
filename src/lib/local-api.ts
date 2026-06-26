@@ -59,17 +59,12 @@ import type {
  *  In production (Tauri or a custom deploy) VITE_LUMORA_SERVER_URL must be
  *  set to the full server address, e.g. "http://192.168.1.10:4000".
  */
-export const LOCAL_API_BASE: string = (() => {
-  const explicit = import.meta.env.VITE_LUMORA_SERVER_URL as string | undefined
-  // If an explicit URL was provided AND it is not localhost/127, use it.
-  // Otherwise default to "" (same-origin via Vite proxy).
-  if (explicit && !explicit.includes("localhost") && !explicit.includes("127.0.0.1")) {
-    return explicit.replace(/\/$/, "")
-  }
-  return ""
-})()
+export const LOCAL_API_BASE =
+  import.meta.env.VITE_LUMORA_SERVER_URL?.replace(/\/$/, "") ??
+  "http://127.0.0.1:4000";
 
-const API = `${LOCAL_API_BASE}/api/v1`
+const API = `${LOCAL_API_BASE}/api/v1`;
+
 
 // ---------------------------------------------------------------------------
 // Token storage (same key kept for backward compat with tokenStore in api.ts)
