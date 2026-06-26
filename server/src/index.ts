@@ -7,7 +7,7 @@
  * Every DB write broadcasts a Socket.IO event to the household room.
  */
 
-import express from "express"
+import express, { type Request, type Response, type NextFunction } from "express"
 import { createServer } from "http"
 import { Server as SocketIOServer } from "socket.io"
 import cors from "cors"
@@ -66,7 +66,7 @@ app.use(express.urlencoded({ extended: true }))
 // We handle auth manually here so we can validate the Bearer token.
 app.use(
   "/photo-files",
-  (req, res, next) => {
+  (req: Request, res: Response, next: NextFunction) => {
     // Allow token in query string for <img> tags that can't set headers.
     const token =
       (req.headers.authorization?.startsWith("Bearer ")
@@ -110,7 +110,7 @@ app.get("/health", (_req, res) => {
 })
 
 // 404 catch-all
-app.use((_req, res) => {
+app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: "Not found." })
 })
 

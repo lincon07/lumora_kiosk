@@ -207,15 +207,25 @@ CREATE INDEX IF NOT EXISTS idx_photos_household ON photos(household_id);
 
 -- ---------------------------------------------------------------------------
 -- kiosk_devices  (devices (tablets/phones) that have paired with this hub)
+-- household_id is nullable — devices register before they are claimed by a
+-- household, so NOT NULL would break POST /register.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS kiosk_devices (
-  id           TEXT PRIMARY KEY,
-  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-  name         TEXT NOT NULL DEFAULT 'Lumora Hub',
-  device_token TEXT NOT NULL UNIQUE,  -- random secret given at pairing
-  last_seen    TEXT,
-  online       INTEGER NOT NULL DEFAULT 0,
-  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  id               TEXT PRIMARY KEY,
+  household_id     TEXT REFERENCES households(id) ON DELETE CASCADE,
+  device_token     TEXT NOT NULL UNIQUE,
+  device_name      TEXT NOT NULL DEFAULT 'Lumora Hub',
+  pairing_code     TEXT,
+  setup_complete   INTEGER NOT NULL DEFAULT 0,
+  is_online        INTEGER NOT NULL DEFAULT 0,
+  last_heartbeat   TEXT,
+  wifi_signal      INTEGER,
+  ping_latency_ms  INTEGER,
+  battery_percent  REAL,
+  device_info      TEXT,
+  language         TEXT,
+  timezone         TEXT,
+  created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_kiosk_devices_household ON kiosk_devices(household_id);
