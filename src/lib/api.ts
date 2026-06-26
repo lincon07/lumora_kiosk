@@ -202,7 +202,7 @@ export { tokenStore } from "./local-api"
 export const syncGuard = {
   lastMutationAt: 0,
   note() { this.lastMutationAt = Date.now() },
-  isBusy(ms = 2000) { return Date.now() - this.lastMutationAt < ms },
+  isBusy(ms = 3000) { return Date.now() - this.lastMutationAt < ms },
 }
 
 /** Method names that change server state (vs. read-only list*/

@@ -53,14 +53,15 @@ export function KioskAppShell() {
           {head.showMembers ? <MemberChips /> : null}
 
           {/* Only this element scrolls — overflow-y-auto, never x */}
-          <main className="flex-1 overflow-y-auto overflow-x-hidden">
+          <main className={`overflow-x-hidden ${tab === "calendar" ? "flex flex-1 flex-col overflow-hidden" : "flex-1 overflow-y-auto"}`}>
             {loading && tab !== "settings" ? (
               <div className="flex items-center justify-center py-24">
                 <Loader2 className="size-6 animate-spin text-muted-foreground" />
               </div>
+            ) : tab === "calendar" ? (
+              <CalendarView />
             ) : (
               <div className="mx-auto max-w-6xl px-4 py-4">
-                {tab === "calendar" && <CalendarView />}
                 {tab === "chores" && <ChoresView />}
                 {tab === "lists" && <ListsView />}
                 {tab === "meals" && <MealsView />}

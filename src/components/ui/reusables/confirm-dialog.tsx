@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { AlertTriangle } from "lucide-react"
 
 export function ConfirmDialog({
   open,
@@ -32,7 +31,7 @@ export function ConfirmDialog({
       requestAnimationFrame(() => requestAnimationFrame(() => setAnimating(true)))
     } else {
       setAnimating(false)
-      closeTimerRef.current = setTimeout(() => setVisible(false), 300)
+      closeTimerRef.current = setTimeout(() => setVisible(false), 280)
     }
     return () => {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
@@ -49,39 +48,37 @@ export function ConfirmDialog({
   if (!mounted || !visible) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-stretch justify-end">
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center px-6"
+      style={{
+        opacity: animating ? 1 : 0,
+        transition: "opacity 280ms cubic-bezier(0.4, 0, 0.2, 1)",
+      }}
+    >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/40"
-        style={{
-          opacity: animating ? 1 : 0,
-          transition: "opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)",
-        }}
+        className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
         onClick={onCancel}
         aria-hidden
       />
 
-      {/* Panel — narrower than BottomSheet, centred vertically */}
+      {/* Card */}
       <div
-        className="relative z-10 my-auto mr-0 flex w-full max-w-xs flex-col bg-card shadow-2xl"
         role="alertdialog"
         aria-modal="true"
         aria-label={title}
+        className="relative z-10 w-full max-w-xs rounded-3xl bg-card shadow-2xl overflow-hidden"
         style={{
-          transform: animating ? "translateX(0)" : "translateX(100%)",
-          transition: "transform 300ms cubic-bezier(0.4, 0, 0.2, 1)",
-          borderRadius: "1.5rem 0 0 1.5rem",
+          transform: animating ? "scale(1) translateY(0)" : "scale(0.95) translateY(8px)",
+          transition: "transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1)",
         }}
       >
-        <div className="p-6 text-center">
-          <span className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-destructive/15 text-destructive">
-            <AlertTriangle className="size-7" />
-          </span>
-          <h2 className="text-base font-bold">{title}</h2>
+        <div className="p-6">
+          <h2 className="text-base font-bold text-foreground">{title}</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{message}</p>
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-border px-5 pb-5 pt-4">
+        <div className="flex flex-col gap-2 border-t border-border/60 px-5 pb-5 pt-4">
           <button
             type="button"
             onClick={onConfirm}

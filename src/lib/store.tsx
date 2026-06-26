@@ -233,9 +233,13 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
   const [kioskDevices, setKioskDevices] = useState<KioskDeviceStatus[]>([])
 
   // Latest-value refs for toggle handlers (avoid stale closures / side effects in updaters).
+  const eventsRef = useRef(events)
   const choresRef = useRef(chores)
   const listsRef = useRef(lists)
   const notificationsRef = useRef(notifications)
+  useEffect(() => {
+    eventsRef.current = events
+  }, [events])
   useEffect(() => {
     choresRef.current = chores
   }, [chores])
@@ -523,10 +527,17 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     api.updateCalendar(id, patch).catch(() => {})
   }, [])
   const deleteCalendar = useCallback((id: string) => {
+    // Collect event ids to remove before wiping local state.
+    const eventsToDelete = eventsRef.current.filter((e) => e.calendarId === id).map((e) => e.id)
     setCalendars((prev) => prev.filter((c) => c.id !== id))
-    // Drop events that belonged to the removed calendar locally too.
+    // Drop events that belonged to the removed calendar locally.
     setEvents((prev) => prev.filter((e) => e.calendarId !== id))
     api.deleteCalendar(id).catch(() => {})
+    // Also explicitly delete each related event via the API in case the server
+    // doesn't cascade on its own — fire-and-forget, errors are benign.
+    for (const evId of eventsToDelete) {
+      api.deleteEvent(evId).catch(() => {})
+    }
   }, [])
 
   // ----- events / chores / meals (flat collections) ------------------------
@@ -558,8 +569,8 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
   }, [])
 
   // ----- lists -------------------------------------------------------------
-  const replaceList = (updated: Checklist) =>
-    setLists((prev) => prev.map((l) => (l.id === updated.id ? updated : l)))
+  const replaceList = useCallback((updated: Checklist) =>
+    setLists((prev) => prev.map((l) => (l.id === updated.id ? updated : l))), [])
 
   const addList = useCallback((title: string, color: MemberColor) => {
     const tmpId = uid("lst")
@@ -583,7 +594,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       prev.map((l) => (l.id === listId ? { ...l, items: [...l.items, { id: tmpId, label, done: false }] } : l)),
     )
     api.addListItem(listId, label).then(replaceList).catch(() => {})
-  }, [])
+  }, [replaceList])
   const updateItem = useCallback((listId: string, itemId: string, label: string) => {
     setLists((prev) =>
       prev.map((l) =>
@@ -591,13 +602,13 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       ),
     )
     api.updateListItem(listId, itemId, { label }).then(replaceList).catch(() => {})
-  }, [])
+  }, [replaceList])
   const deleteItem = useCallback((listId: string, itemId: string) => {
     setLists((prev) =>
       prev.map((l) => (l.id === listId ? { ...l, items: l.items.filter((i) => i.id !== itemId) } : l)),
     )
     api.deleteListItem(listId, itemId).then(replaceList).catch(() => {})
-  }, [])
+  }, [replaceList])
   const toggleItem = useCallback((listId: string, itemId: string) => {
     const list = listsRef.current.find((l) => l.id === listId)
     const item = list?.items.find((i) => i.id === itemId)
@@ -609,7 +620,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       ),
     )
     api.updateListItem(listId, itemId, { done }).then(replaceList).catch(() => {})
-  }, [])
+  }, [replaceList])
 
   // ----- notifications -----------------------------------------------------
   const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications])
