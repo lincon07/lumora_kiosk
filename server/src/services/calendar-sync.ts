@@ -235,6 +235,17 @@ function upsertEvents(
   source: "google" | "microsoft",
   events: NormalisedEvent[],
 ): number {
+  // Skip any events that lack a source_event_id — the ON CONFLICT clause
+  // requires a non-null value to match the unique index.
+  const validEvents = events.filter(
+    (e) => typeof e.source_event_id === "string" && e.source_event_id.trim() !== "",
+  )
+  if (validEvents.length !== events.length) {
+    console.warn(
+      `[calendar-sync] upsertEvents: skipped ${events.length - validEvents.length} event(s) with missing source_event_id`,
+    )
+  }
+
   const db = getDb()
   const upsert = db.prepare(`
     INSERT INTO events (id, household_id, title, date, time, start_hour, end_hour, location, source, source_event_id)
@@ -267,7 +278,7 @@ function upsertEvents(
     return evts.length
   })
 
-  return run(events) as number
+  return run(validEvents) as number
 }
 
 // ----- Public sync API ------------------------------------------------------
