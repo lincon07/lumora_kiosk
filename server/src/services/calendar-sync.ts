@@ -249,7 +249,8 @@ function upsertEvents(
   `)
 
   const run = db.transaction((evts: NormalisedEvent[]) => {
-    for (const e of evts) {
+    const valid = evts.filter((e) => e.source_event_id && e.source_event_id.trim() !== "")
+    for (const e of valid) {
       upsert.run({
         id: uuidv4(),
         household_id: householdId,
