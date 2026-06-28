@@ -168,6 +168,16 @@ export type JwtPayload = {
 }
 
 // ---------------------------------------------------------------------------
+// Hub remote-command types
+// ---------------------------------------------------------------------------
+
+export type HubCommand =
+  | { type: "restart" }
+  | { type: "reload" }
+  | { type: "clear_cache" }
+  | { type: "set_orientation"; orientation: "normal" | "left" | "right" | "inverted" | "portrait" }
+
+// ---------------------------------------------------------------------------
 // Socket.IO event map
 // ---------------------------------------------------------------------------
 
@@ -204,6 +214,8 @@ export type ServerToClientEvents = {
 
   "photos:created": (row: Photo) => void
   "photos:deleted": (id: string) => void
+
+  "hub:command": (cmd: HubCommand) => void
 }
 
 /** Events emitted FROM clients TO the server (currently none needed server-side). */

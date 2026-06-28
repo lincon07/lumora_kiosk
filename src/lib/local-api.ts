@@ -281,11 +281,19 @@ export type LiveEvent = {
   householdId: string
 }
 
+export type HubCommandEvent =
+  | { type: "restart" }
+  | { type: "reload" }
+  | { type: "clear_cache" }
+  | { type: "set_orientation"; orientation: "normal" | "left" | "right" | "inverted" | "portrait" }
+
 type LiveListener = (event: LiveEvent) => void
+type HubCommandListener = (cmd: HubCommandEvent) => void
 
 class LiveSocket {
   private socket: Socket | null = null
   private listeners = new Set<LiveListener>()
+  private hubCommandListeners = new Set<HubCommandListener>()
   private householdId: string | null = null
 
   connect(householdId: string) {
@@ -318,6 +326,10 @@ class LiveSocket {
         })
       }
     }
+
+    this.socket.on("hub:command", (cmd: HubCommandEvent) => {
+      for (const l of this.hubCommandListeners) l(cmd)
+    })
   }
 
   disconnect() {
@@ -333,6 +345,12 @@ class LiveSocket {
     return () => this.listeners.delete(cb)
   }
 
+  /** Subscribe to hub remote commands. Returns an unsubscribe function. */
+  subscribeHubCommand(cb: HubCommandListener): () => void {
+    this.hubCommandListeners.add(cb)
+    return () => this.hubCommandListeners.delete(cb)
+  }
+
   private emit(event: LiveEvent) {
     for (const l of this.listeners) l(event)
   }
@@ -344,6 +362,24 @@ class LiveSocket {
 
 /** Singleton live socket — shared across the app. */
 export const liveSocket = new LiveSocket()
+
+// ---------------------------------------------------------------------------
+// Hub remote-command helpers
+// ---------------------------------------------------------------------------
+
+export type HubCommandPayload =
+  | { type: "restart" }
+  | { type: "reload" }
+  | { type: "clear_cache" }
+  | { type: "set_orientation"; orientation: "normal" | "left" | "right" | "inverted" | "portrait" }
+
+/**
+ * Ask the server to broadcast a hub command to all kiosk devices in the household.
+ * The kiosk receives the Socket.IO "hub:command" event and executes the action locally.
+ */
+export async function sendHubCommand(cmd: HubCommandPayload): Promise<void> {
+  await req<{ ok: boolean }>("/hub/command", "POST", cmd)
+}
 
 // ---------------------------------------------------------------------------
 // LumoraApi implementation backed by the local server

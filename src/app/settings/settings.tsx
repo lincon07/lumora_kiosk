@@ -84,8 +84,10 @@ import {
   stopUpdatePolling,
   getPendingUpdate,
   subscribeUpdate,
+  isHubDevice,
   type HubLogLevel,
 } from "@/lib/hub"
+import { sendHubCommand } from "@/lib/local-api"
 import {
   getLanguage,
   setLanguage,
@@ -405,9 +407,45 @@ function HubActionsSection() {
     }
   }
 
+  const onReloadDisplay = async () => {
+    if (isHubDevice()) {
+      reloadDisplay()
+    } else {
+      try {
+        await sendHubCommand({ type: "reload" })
+        toast.success("Reload sent to hub")
+      } catch {
+        toast.error("Could not reach hub")
+      }
+    }
+  }
+
   const onClearCache = async () => {
-    await clearCache()
-    toast.success("Cache cleared")
+    if (isHubDevice()) {
+      await clearCache()
+      toast.success("Cache cleared")
+    } else {
+      try {
+        await sendHubCommand({ type: "clear_cache" })
+        toast.success("Clear cache sent to hub")
+      } catch {
+        toast.error("Could not reach hub")
+      }
+    }
+  }
+
+  const onConfirmRestart = async () => {
+    setConfirmRestart(false)
+    if (isHubDevice()) {
+      void restartHub()
+    } else {
+      try {
+        await sendHubCommand({ type: "restart" })
+        toast.success("Restart command sent to hub")
+      } catch {
+        toast.error("Could not reach hub")
+      }
+    }
   }
 
   return (
@@ -446,13 +484,13 @@ function HubActionsSection() {
           icon={RotateCcw}
           label="Reload display"
           description="Refresh the on-screen UI"
-          onClick={reloadDisplay}
+          onClick={() => void onReloadDisplay()}
         />
         <ActionRow
           icon={Eraser}
           label="Clear cache"
           description="Free up cached web data"
-          onClick={onClearCache}
+          onClick={() => void onClearCache()}
         />
         {can("hub") ? (
           <ActionRow
@@ -473,10 +511,7 @@ function HubActionsSection() {
         message="The display will go dark and reboot. This takes about a minute."
         confirmLabel="Restart"
         onCancel={() => setConfirmRestart(false)}
-        onConfirm={() => {
-          setConfirmRestart(false)
-          void restartHub()
-        }}
+        onConfirm={() => void onConfirmRestart()}
       />
     </section>
   )
@@ -1880,13 +1915,20 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
     setApplying(true)
     setOrientationSheetOpen(false)
     try {
-      const ok = await setOrientation(rotation)
-      if (ok) {
+      if (isHubDevice()) {
+        const ok = await setOrientation(rotation)
+        if (ok) {
+          setCurrentOrientation(rotation)
+          await patchDeviceState({ orientation: rotation })
+          toast.success("Screen rotation updated")
+        } else {
+          toast.error("Could not apply rotation — check display connection")
+        }
+      } else {
+        await sendHubCommand({ type: "set_orientation", orientation: rotation })
         setCurrentOrientation(rotation)
         await patchDeviceState({ orientation: rotation })
-        toast.success("Screen rotation updated")
-      } else {
-        toast.error("Could not apply rotation — check display connection")
+        toast.success("Orientation command sent to hub")
       }
     } catch {
       toast.error("Could not apply rotation")

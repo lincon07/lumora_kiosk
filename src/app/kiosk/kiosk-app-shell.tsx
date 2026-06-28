@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { Loader2 } from "lucide-react"
 import { SideNav } from "@/components/ui/reusables/side-nav"
 import { HeaderNav } from "@/components/ui/reusables/header-nav"
@@ -12,6 +13,9 @@ import { PhotosView } from "@/app/photos/photos"
 import { SettingsView } from "@/app/settings/settings"
 import { useStore, type TabKey } from "@/lib/store"
 import { SystemStatusBar } from "@/components/ui/reusables/system-status-bar"
+import { liveSocket } from "@/lib/local-api"
+import { restartHub, reloadDisplay, clearCache, addLog } from "@/lib/hub"
+import { setOrientation } from "@/lib/locale-service"
 
 const todaySubtitle = new Date().toLocaleDateString(undefined, {
   weekday: "long",
@@ -36,6 +40,28 @@ const headers: Record<TabKey, { title: string; subtitle?: string; showMembers: b
 export function KioskAppShell() {
   const { tab, setTab, loading } = useStore()
   const head = headers[tab]
+
+  useEffect(() => {
+    return liveSocket.subscribeHubCommand((cmd) => {
+      switch (cmd.type) {
+        case "restart":
+          void restartHub()
+          break
+        case "reload":
+          reloadDisplay()
+          break
+        case "clear_cache":
+          void clearCache()
+          break
+        case "set_orientation":
+          void setOrientation(cmd.orientation)
+            .then((ok) => {
+              if (!ok) addLog("warning", "system", "Remote orientation change failed")
+            })
+          break
+      }
+    })
+  }, [])
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
