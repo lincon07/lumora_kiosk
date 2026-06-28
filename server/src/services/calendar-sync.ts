@@ -50,6 +50,7 @@ type NormalisedEvent = {
   start_hour: number
   end_hour: number
   location: string | null
+  calendar_id: string | null  // Lumora calendar id from mapping
 }
 
 // ----- Token refresh --------------------------------------------------------
@@ -128,7 +129,11 @@ function isoToDate(iso: string): { date: string; time: string | null; hour: numb
   return { date: iso, time: null, hour: 0 }
 }
 
-async function fetchGoogleEvents(token: string): Promise<NormalisedEvent[]> {
+async function fetchGoogleEventsForCalendar(
+  token: string,
+  googleCalendarId: string,
+  lumoraCalendarId: string | null,
+): Promise<NormalisedEvent[]> {
   const now = new Date()
   const past = new Date(now)
   past.setDate(past.getDate() - WINDOW_PAST_DAYS)
@@ -143,11 +148,12 @@ async function fetchGoogleEvents(token: string): Promise<NormalisedEvent[]> {
     maxResults: "500",
   })
 
+  const encodedId = encodeURIComponent(googleCalendarId)
   const res = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodedId}/events?${params}`,
     { headers: { Authorization: `Bearer ${token}` } },
   )
-  if (!res.ok) throw new Error(`Google Calendar fetch failed: ${res.status}`)
+  if (!res.ok) throw new Error(`Google Calendar fetch failed for ${googleCalendarId}: ${res.status}`)
 
   const json = (await res.json()) as {
     items: Array<{
@@ -173,13 +179,39 @@ async function fetchGoogleEvents(token: string): Promise<NormalisedEvent[]> {
         start_hour: start.hour,
         end_hour: end.hour,
         location: e.location ?? null,
+        calendar_id: lumoraCalendarId,
       }
     })
 }
 
+async function fetchGoogleEvents(token: string, householdId: string): Promise<NormalisedEvent[]> {
+  // Check for mappings. If none exist, fall back to primary calendar (backwards compat).
+  const db = getDb()
+  type MappingRow = { external_id: string; calendar_id: string | null }
+  const mappings = db
+    .prepare("SELECT external_id, calendar_id FROM calendar_provider_mappings WHERE household_id=? AND provider='google'")
+    .all(householdId) as MappingRow[]
+
+  if (mappings.length === 0) {
+    // No mappings configured — fetch primary only, no calendar assignment.
+    return fetchGoogleEventsForCalendar(token, "primary", null)
+  }
+
+  const results: NormalisedEvent[] = []
+  for (const m of mappings) {
+    try {
+      const events = await fetchGoogleEventsForCalendar(token, m.external_id, m.calendar_id)
+      results.push(...events)
+    } catch (err) {
+      console.error(`[calendar-sync] Google fetch failed for mapped calendar ${m.external_id}:`, err)
+    }
+  }
+  return results
+}
+
 // ----- Microsoft Graph API --------------------------------------------------
 
-async function fetchMicrosoftEvents(token: string): Promise<NormalisedEvent[]> {
+async function fetchMicrosoftEvents(token: string, householdId: string): Promise<NormalisedEvent[]> {
   const now = new Date()
   const past = new Date(now)
   past.setDate(past.getDate() - WINDOW_PAST_DAYS)
@@ -189,7 +221,7 @@ async function fetchMicrosoftEvents(token: string): Promise<NormalisedEvent[]> {
   const params = new URLSearchParams({
     startDateTime: past.toISOString(),
     endDateTime: future.toISOString(),
-    $select: "id,subject,start,end,location,isCancelled",
+    $select: "id,subject,start,end,location,isCancelled,categories",
     $top: "500",
     $orderby: "start/dateTime",
   })
@@ -208,14 +240,25 @@ async function fetchMicrosoftEvents(token: string): Promise<NormalisedEvent[]> {
       end: { dateTime: string; timeZone: string }
       location?: { displayName?: string }
       isCancelled?: boolean
+      categories?: string[]
     }>
   }
+
+  // Build category → calendar_id lookup from mappings.
+  const db = getDb()
+  type MappingRow = { external_id: string; calendar_id: string | null }
+  const mappings = db
+    .prepare("SELECT external_id, calendar_id FROM calendar_provider_mappings WHERE household_id=? AND provider='microsoft'")
+    .all(householdId) as MappingRow[]
+  const categoryMap = new Map(mappings.map((m) => [m.external_id, m.calendar_id]))
 
   return (json.value ?? [])
     .filter((e) => !e.isCancelled)
     .map((e) => {
       const start = isoToDate(e.start.dateTime)
       const end = isoToDate(e.end.dateTime)
+      // Use first matched category mapping, else null (General).
+      const calendarId = e.categories?.map((c) => categoryMap.get(c)).find((v) => v !== undefined) ?? null
       return {
         source_event_id: e.id,
         title: e.subject ?? "(No title)",
@@ -224,6 +267,7 @@ async function fetchMicrosoftEvents(token: string): Promise<NormalisedEvent[]> {
         start_hour: start.hour,
         end_hour: end.hour,
         location: e.location?.displayName ?? null,
+        calendar_id: calendarId ?? null,
       }
     })
 }
@@ -248,15 +292,16 @@ function upsertEvents(
 
   const db = getDb()
   const upsert = db.prepare(`
-    INSERT INTO events (id, household_id, title, date, time, start_hour, end_hour, location, source, source_event_id)
-    VALUES (@id, @household_id, @title, @date, @time, @start_hour, @end_hour, @location, @source, @source_event_id)
+    INSERT INTO events (id, household_id, calendar_id, title, date, time, start_hour, end_hour, location, source, source_event_id)
+    VALUES (@id, @household_id, @calendar_id, @title, @date, @time, @start_hour, @end_hour, @location, @source, @source_event_id)
     ON CONFLICT(household_id, source, source_event_id) DO UPDATE SET
-      title      = excluded.title,
-      date       = excluded.date,
-      time       = excluded.time,
-      start_hour = excluded.start_hour,
-      end_hour   = excluded.end_hour,
-      location   = excluded.location
+      title       = excluded.title,
+      date        = excluded.date,
+      time        = excluded.time,
+      start_hour  = excluded.start_hour,
+      end_hour    = excluded.end_hour,
+      location    = excluded.location,
+      calendar_id = excluded.calendar_id
   `)
 
   const run = db.transaction((evts: NormalisedEvent[]) => {
@@ -265,6 +310,7 @@ function upsertEvents(
       upsert.run({
         id: uuidv4(),
         household_id: householdId,
+        calendar_id: e.calendar_id ?? null,
         title: e.title,
         date: e.date,
         time: e.time,
@@ -294,8 +340,8 @@ export async function syncHousehold(householdId: string): Promise<void> {
       const token = await getValidToken(row)
       const events =
         row.provider === "google"
-          ? await fetchGoogleEvents(token)
-          : await fetchMicrosoftEvents(token)
+          ? await fetchGoogleEvents(token, householdId)
+          : await fetchMicrosoftEvents(token, householdId)
       const count = upsertEvents(householdId, row.provider, events)
       console.log(`[calendar-sync] ${row.provider} → ${householdId}: ${count} events upserted`)
       // Notify connected iOS clients so they refresh the calendar view.

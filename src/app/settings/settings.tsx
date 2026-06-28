@@ -102,6 +102,9 @@ import {
   type WifiNetwork,
 } from "@/lib/wifi-service"
 import { patchDeviceState } from "@/lib/device-state"
+import { CalendarImportSheet } from "@/app/calendar/CalendarImportSheet"
+import { ActivityLog } from "@/app/settings/ActivityLog"
+import { LOCAL_API_BASE, tokenStore } from "@/lib/local-api"
 
 
 function Toggle({
@@ -2096,6 +2099,104 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
   )
 }
 
+function CalendarIntegrationSection() {
+  const { calendars, addCalendar } = useStore()
+  const [importProvider, setImportProvider] = useState<"google" | "microsoft" | null>(null)
+  const [icsUrl, setIcsUrl] = useState<string | null>(null)
+  const [icsCopied, setIcsCopied] = useState(false)
+  const [activityLogOpen, setActivityLogOpen] = useState(false)
+
+  useEffect(() => {
+    // Derive household id from the cached session to build ICS token URL.
+    const token = tokenStore.get()
+    if (!token) return
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1])) as { householdId?: string }
+      if (payload.householdId) {
+        fetch(`${LOCAL_API_BASE}/ics/token/${payload.householdId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then((r) => r.json() as Promise<{ token: string; householdId: string }>)
+          .then(({ token: t }) => {
+            setIcsUrl(`${LOCAL_API_BASE}/ics/${t}`)
+          })
+          .catch(() => null)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  const copyIcs = () => {
+    if (!icsUrl) return
+    navigator.clipboard.writeText(icsUrl).then(() => {
+      setIcsCopied(true)
+      setTimeout(() => setIcsCopied(false), 2000)
+    }).catch(() => null)
+  }
+
+  return (
+    <section>
+      <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Calendar Integration</h2>
+      <div className="divide-y divide-border/60 overflow-hidden rounded-3xl bg-card shadow-sm">
+        <ActionRow
+          icon={Globe}
+          label="Map Google calendars"
+          description="Assign Google calendars to Lumora calendars"
+          onClick={() => setImportProvider("google")}
+        />
+        <ActionRow
+          icon={Globe}
+          label="Map Outlook categories"
+          description="Assign Outlook categories to Lumora calendars"
+          onClick={() => setImportProvider("microsoft")}
+        />
+        {icsUrl ? (
+          <button
+            type="button"
+            onClick={copyIcs}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
+              <Link2Off className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">Hub calendar feed</span>
+              <span className="block truncate text-xs text-muted-foreground">{icsUrl}</span>
+            </span>
+            {icsCopied ? (
+              <Check className="size-4 shrink-0 text-member-green" />
+            ) : (
+              <Copy className="size-4 shrink-0 text-muted-foreground" />
+            )}
+          </button>
+        ) : null}
+        <ActionRow
+          icon={ScrollText}
+          label="Activity log"
+          description="View recent actions on this hub"
+          onClick={() => setActivityLogOpen(true)}
+        />
+      </div>
+
+      <CalendarImportSheet
+        open={importProvider !== null}
+        provider={importProvider}
+        lumCalendars={calendars}
+        onClose={() => setImportProvider(null)}
+        onMappingSaved={(newCals) => {
+          for (const c of newCals.filter((nc) => !calendars.find((lc) => lc.id === nc.id))) {
+            addCalendar({ name: c.name, color: c.color, memberIds: c.memberIds })
+          }
+          setImportProvider(null)
+        }}
+      />
+
+      <BottomSheet open={activityLogOpen} onClose={() => setActivityLogOpen(false)} title="Activity Log">
+        <ActivityLog onClose={() => setActivityLogOpen(false)} />
+      </BottomSheet>
+    </section>
+  )
+}
+
 export function SettingsView() {
   const { clearNotifications, can } = useStore()
   const authCtx = useOptionalAuth()
@@ -2189,6 +2290,9 @@ export function SettingsView() {
 
       {/* WiFi */}
       <WifiSection />
+
+      {/* Calendar integration — import mappings + ICS feed + activity log */}
+      <CalendarIntegrationSection />
 
       {/* Language & Region — OS level */}
       <LanguageRegionSection initialOrientation={deviceState.orientation} />

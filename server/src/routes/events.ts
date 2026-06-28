@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid"
 import { getDb, parseJson } from "../db"
 import { requireAuth, type AuthRequest } from "../middleware/auth"
 import { broadcast } from "../broadcaster"
+import { writeLog } from "./activity-logs"
 import type { CalendarEvent } from "../types"
 
 const router = Router()
@@ -84,8 +85,10 @@ router.delete("/:id", (req: Request, res: Response) => {
   if (!db.prepare("SELECT id FROM events WHERE id = ? AND household_id = ?").get(id, householdId)) {
     res.status(404).json({ error: "Event not found." }); return
   }
+  const deleted = db.prepare("SELECT title FROM events WHERE id = ? AND household_id = ?").get(id, householdId) as { title: string } | undefined
   db.prepare("DELETE FROM events WHERE id = ? AND household_id = ?").run(id, householdId)
   broadcast(householdId, "events:deleted", id)
+  writeLog({ householdId, actorId: (req as AuthRequest).user.sub, action: "event.delete", resourceType: "event", resourceId: id, resourceName: deleted?.title ?? "" })
   res.status(204).end()
 })
 

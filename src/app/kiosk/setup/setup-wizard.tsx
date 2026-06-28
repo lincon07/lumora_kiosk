@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Sparkles,
   Languages,
@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { WifiStep } from "./wifi-step"
 import { applyLocaleSettings, type ScreenOrientation } from "@/lib/locale-service"
+import { currentNetwork } from "@/lib/wifi-service"
 import { SystemStatusBar } from "@/components/ui/reusables/system-status-bar"
 
 export type SetupValues = {
@@ -134,6 +135,11 @@ export function SetupWizard({
 
   const [language, setLanguage] = useState(defaults.language ?? "en-US")
   const [connectedSsid, setConnectedSsid] = useState<string | null>(null)
+
+  // Pre-populate connectedSsid if Linux is already on a network when setup starts.
+  useEffect(() => {
+    void currentNetwork().then((ssid) => { if (ssid) setConnectedSsid(ssid) })
+  }, [])
   const [timezone, setTimezone] = useState(defaults.timezone ?? detected ?? "America/New_York")
   const [orientation, setOrientation] = useState<ScreenOrientation>(
     (defaults.orientation as ScreenOrientation | undefined) ?? "normal",

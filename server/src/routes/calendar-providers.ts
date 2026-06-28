@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from "uuid"
 import { getDb } from "../db"
 import { requireAuth, type AuthRequest } from "../middleware/auth"
 import { syncHousehold } from "../services/calendar-sync"
+import { writeLog } from "./activity-logs"
 
 const GOOGLE_CLIENT_ID     = process.env.VITE_GOOGLE_CLIENT_ID ?? ""
 const GOOGLE_CLIENT_SECRET = process.env.VITE_GOOGLE_CLIENT_SECRET ?? ""
@@ -169,6 +170,10 @@ router.post("/:provider/exchange", async (req: Request, res: Response) => {
       .prepare("SELECT * FROM calendar_providers WHERE household_id=? AND provider=?")
       .get(householdId, provider) as { provider: string; email: string | null; connected_at: string }
 
+    if (!existing) {
+      writeLog({ householdId, actorId: (req as AuthRequest).user.sub, action: "provider.connect", resourceType: "calendar_provider", resourceName: `${provider} (${row.email ?? ""})` })
+    }
+
     res.status(existing ? 200 : 201).json({
       provider: row.provider,
       email: row.email,
@@ -244,21 +249,129 @@ router.delete("/:provider", (req: Request, res: Response) => {
   const { provider } = req.params
 
   const db = getDb()
-  db.prepare(
-    "DELETE FROM events WHERE household_id=? AND source=?",
-  ).run(householdId, provider)
-  db.prepare(
-    "DELETE FROM calendar_providers WHERE household_id=? AND provider=?",
-  ).run(householdId, provider)
-
+  db.prepare("DELETE FROM events WHERE household_id=? AND source=?").run(householdId, provider)
+  db.prepare("DELETE FROM calendar_providers WHERE household_id=? AND provider=?").run(householdId, provider)
+  writeLog({ householdId, actorId: (req as AuthRequest).user.sub, action: "provider.disconnect", resourceType: "calendar_provider", resourceName: provider })
   res.status(204).end()
 })
 
 // POST /api/v1/calendar-providers/sync
-// Manual sync trigger — iOS can call this after reconnecting or on pull-to-refresh.
 router.post("/sync", (req: Request, res: Response) => {
   const { householdId } = (req as AuthRequest).user
   void syncHousehold(householdId).catch(() => {})
+  res.json({ ok: true })
+})
+
+// ---------------------------------------------------------------------------
+// Provider calendar / category list endpoints
+// These proxy to Google / Microsoft to return what's available for mapping.
+// ---------------------------------------------------------------------------
+
+async function getValidToken(householdId: string, provider: "google" | "microsoft"): Promise<string | null> {
+  const db = getDb()
+  const row = db
+    .prepare("SELECT * FROM calendar_providers WHERE household_id=? AND provider=?")
+    .get(householdId, provider) as ProviderRow | undefined
+  if (!row) return null
+  const nowSec = Math.floor(Date.now() / 1000)
+  if (row.expires_at && row.expires_at > nowSec) return row.access_token
+  // Refresh if needed
+  try {
+    if (provider === "google") {
+      if (!row.refresh_token) return null
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, refresh_token: row.refresh_token, grant_type: "refresh_token" }),
+      })
+      if (!res.ok) return null
+      const json = (await res.json()) as { access_token: string; expires_in: number }
+      const expiresAt = Math.floor(Date.now() / 1000) + json.expires_in - 60
+      db.prepare("UPDATE calendar_providers SET access_token=?, expires_at=? WHERE id=?").run(json.access_token, expiresAt, row.id)
+      return json.access_token
+    } else {
+      if (!row.refresh_token) return null
+      const res = await fetch(`https://login.microsoftonline.com/${MICROSOFT_TENANT_ID}/oauth2/v2.0/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: MICROSOFT_CLIENT_ID, client_secret: MICROSOFT_CLIENT_SECRET, refresh_token: row.refresh_token, grant_type: "refresh_token", scope: "Calendars.Read offline_access" }),
+      })
+      if (!res.ok) return null
+      const json = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number }
+      const expiresAt = Math.floor(Date.now() / 1000) + json.expires_in - 60
+      db.prepare("UPDATE calendar_providers SET access_token=?, refresh_token=COALESCE(?,refresh_token), expires_at=? WHERE id=?").run(json.access_token, json.refresh_token ?? null, expiresAt, row.id)
+      return json.access_token
+    }
+  } catch { return null }
+}
+
+// GET /api/v1/calendar-providers/google/external-calendars
+// Returns the user's Google Calendar list for mapping.
+router.get("/google/external-calendars", async (req: Request, res: Response) => {
+  const { householdId } = (req as AuthRequest).user
+  if (!householdId) { res.status(403).json({ error: "No household." }); return }
+  const token = await getValidToken(householdId, "google")
+  if (!token) { res.status(404).json({ error: "Google not connected." }); return }
+  const r = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=100", {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!r.ok) { res.status(502).json({ error: "Google calendar list fetch failed." }); return }
+  const json = (await r.json()) as { items: Array<{ id: string; summary: string; backgroundColor?: string }> }
+  res.json((json.items ?? []).map((c) => ({ id: c.id, name: c.summary, color: c.backgroundColor })))
+})
+
+// GET /api/v1/calendar-providers/microsoft/external-calendars
+// Returns the user's Outlook categories for mapping.
+router.get("/microsoft/external-calendars", async (req: Request, res: Response) => {
+  const { householdId } = (req as AuthRequest).user
+  if (!householdId) { res.status(403).json({ error: "No household." }); return }
+  const token = await getValidToken(householdId, "microsoft")
+  if (!token) { res.status(404).json({ error: "Microsoft not connected." }); return }
+  const r = await fetch("https://graph.microsoft.com/v1.0/me/outlook/masterCategories", {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!r.ok) { res.status(502).json({ error: "Microsoft categories fetch failed." }); return }
+  const json = (await r.json()) as { value: Array<{ id: string; displayName: string; color?: string }> }
+  res.json((json.value ?? []).map((c) => ({ id: c.displayName, name: c.displayName, color: c.color })))
+})
+
+// ---------------------------------------------------------------------------
+// Mappings CRUD
+// ---------------------------------------------------------------------------
+
+// GET /api/v1/calendar-providers/mappings
+router.get("/mappings", (req: Request, res: Response) => {
+  const { householdId } = (req as AuthRequest).user
+  if (!householdId) { res.json([]); return }
+  type Row = { id: string; provider: string; external_id: string; external_name: string; calendar_id: string | null }
+  const rows = getDb()
+    .prepare("SELECT * FROM calendar_provider_mappings WHERE household_id = ?")
+    .all(householdId) as Row[]
+  res.json(rows.map((r) => ({ id: r.id, provider: r.provider, externalId: r.external_id, externalName: r.external_name, calendarId: r.calendar_id })))
+})
+
+// PUT /api/v1/calendar-providers/mappings
+router.put("/mappings", (req: Request, res: Response) => {
+  const { householdId } = (req as AuthRequest).user
+  if (!householdId) { res.status(403).json({ error: "No household." }); return }
+  const items = req.body as Array<{ provider: string; externalId: string; externalName: string; calendarId?: string | null }>
+  if (!Array.isArray(items)) { res.status(400).json({ error: "Body must be an array." }); return }
+
+  const db = getDb()
+  const upsert = db.prepare(
+    `INSERT INTO calendar_provider_mappings (id, household_id, provider, external_id, external_name, calendar_id)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(household_id, provider, external_id) DO UPDATE SET
+       external_name = excluded.external_name,
+       calendar_id   = excluded.calendar_id`,
+  )
+  const run = db.transaction(() => {
+    for (const item of items) {
+      if (!item.provider || !item.externalId) continue
+      upsert.run(uuidv4(), householdId, item.provider, item.externalId, item.externalName ?? item.externalId, item.calendarId ?? null)
+    }
+  })
+  run()
   res.json({ ok: true })
 })
 

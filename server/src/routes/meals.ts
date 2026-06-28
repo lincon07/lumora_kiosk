@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid"
 import { getDb } from "../db"
 import { requireAuth, type AuthRequest } from "../middleware/auth"
 import { broadcast } from "../broadcaster"
+import { writeLog } from "./activity-logs"
 import type { Meal } from "../types"
 
 const router = Router()
@@ -43,6 +44,7 @@ router.post("/", (req: Request, res: Response) => {
   const row = db.prepare("SELECT * FROM meals WHERE id = ?").get(id) as Record<string, unknown>
   const meal = rowToMeal(row)
   broadcast(householdId, "meals:created", meal)
+  writeLog({ householdId, actorId: (req as AuthRequest).user.sub, action: "meal.create", resourceType: "meal", resourceId: id, resourceName: meal.name })
   res.status(201).json(meal)
 })
 
@@ -73,11 +75,11 @@ router.delete("/:id", (req: Request, res: Response) => {
   const { householdId } = (req as AuthRequest).user
   const { id } = req.params
   const db = getDb()
-  if (!db.prepare("SELECT id FROM meals WHERE id = ? AND household_id = ?").get(id, householdId)) {
-    res.status(404).json({ error: "Meal not found." }); return
-  }
+  const existing = db.prepare("SELECT name FROM meals WHERE id = ? AND household_id = ?").get(id, householdId) as { name: string } | undefined
+  if (!existing) { res.status(404).json({ error: "Meal not found." }); return }
   db.prepare("DELETE FROM meals WHERE id = ? AND household_id = ?").run(id, householdId)
   broadcast(householdId, "meals:deleted", id)
+  writeLog({ householdId, actorId: (req as AuthRequest).user.sub, action: "meal.delete", resourceType: "meal", resourceId: id, resourceName: existing.name })
   res.status(204).end()
 })
 

@@ -33,6 +33,8 @@ import { photosRouter } from "./routes/photos"
 import { snapshotRouter } from "./routes/snapshot"
 import { kioskRouter } from "./routes/kiosk"
 import { calendarProvidersRouter } from "./routes/calendar-providers"
+import { activityLogsRouter } from "./routes/activity-logs"
+import { icsRouter } from "./routes/ics"
 import { startCalendarSyncScheduler } from "./services/calendar-sync"
 
 import type { ServerToClientEvents, ClientToServerEvents, SocketData } from "./types"
@@ -110,6 +112,8 @@ app.use("/api/v1/kiosk", kioskRouter)
 // Alias used by kiosk-status.ts heartbeat publisher
 app.use("/api/v1/kiosk-devices", kioskRouter)
 app.use("/api/v1/calendar-providers", calendarProvidersRouter)
+app.use("/api/v1/activity-logs", activityLogsRouter)
+app.use("/ics", icsRouter)
 
 // Health check
 app.get("/health", (_req, res) => {

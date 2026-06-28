@@ -251,3 +251,40 @@ CREATE TABLE IF NOT EXISTS calendar_providers (
 
 CREATE INDEX IF NOT EXISTS idx_calendar_providers_household ON calendar_providers(household_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source ON events(household_id, source, source_event_id) ;
+
+-- ---------------------------------------------------------------------------
+-- calendar_provider_mappings
+-- Maps an external Google calendar or Outlook category → a Lumora calendar.
+-- external_id: Google calendarId or Outlook category displayName.
+-- calendar_id NULL = events land in the "General" calendar (auto-created).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS calendar_provider_mappings (
+  id            TEXT PRIMARY KEY,
+  household_id  TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL,   -- 'google' | 'microsoft'
+  external_id   TEXT NOT NULL,   -- Google calendarId or Outlook category name
+  external_name TEXT NOT NULL,   -- display name shown in UI
+  calendar_id   TEXT REFERENCES calendars(id) ON DELETE SET NULL,
+  UNIQUE(household_id, provider, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cal_mappings_household ON calendar_provider_mappings(household_id);
+
+-- ---------------------------------------------------------------------------
+-- activity_logs  (major destructive / invite / update actions)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id            TEXT PRIMARY KEY,
+  household_id  TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  actor_id      TEXT REFERENCES members(id) ON DELETE SET NULL,
+  actor_name    TEXT NOT NULL DEFAULT '',
+  action        TEXT NOT NULL,   -- e.g. 'event.delete', 'member.invite', 'meal.create'
+  resource_type TEXT NOT NULL,   -- 'event' | 'chore' | 'meal' | 'member' | 'calendar' | 'list'
+  resource_id   TEXT,
+  resource_name TEXT NOT NULL DEFAULT '',
+  metadata      TEXT NOT NULL DEFAULT '{}',  -- JSON blob for extra context
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_logs_household ON activity_logs(household_id);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created   ON activity_logs(created_at);

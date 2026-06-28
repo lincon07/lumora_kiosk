@@ -5,6 +5,18 @@ import { createPortal } from "react-dom"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+// Global counter so multiple sheets (or rapid open/close) don't fight over
+// body overflow. We only lock when count > 0 and unlock when it hits 0.
+let _openCount = 0
+function lockScroll() {
+  _openCount++
+  document.body.style.overflow = "hidden"
+}
+function unlockScroll() {
+  _openCount = Math.max(0, _openCount - 1)
+  if (_openCount === 0) document.body.style.overflow = ""
+}
+
 export function BottomSheet({
   open,
   onClose,
@@ -51,10 +63,10 @@ export function BottomSheet({
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && requestClose()
     document.addEventListener("keydown", onKey)
-    document.body.style.overflow = "hidden"
+    lockScroll()
     return () => {
       document.removeEventListener("keydown", onKey)
-      document.body.style.overflow = ""
+      unlockScroll()
     }
   }, [open, requestClose])
 
