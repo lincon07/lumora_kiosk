@@ -193,6 +193,7 @@ export type Photo = {
   id: string
   src: string
   caption: string
+  createdAt?: string
 }
 
 export type Notification = {

@@ -37,6 +37,8 @@ import {
   Clock,
   Wifi,
   User,
+  Timer,
+  Images,
   type LucideIcon,
 } from "lucide-react"
 import {
@@ -2141,6 +2143,82 @@ function LanguageRegionSection({ initialOrientation }: { initialOrientation?: st
   )
 }
 
+const IDLE_OPTIONS: { label: string; value: number | null }[] = [
+  { label: "Off", value: null },
+  { label: "1 min", value: 1 },
+  { label: "2 min", value: 2 },
+  { label: "5 min", value: 5 },
+  { label: "10 min", value: 10 },
+  { label: "15 min", value: 15 },
+  { label: "30 min", value: 30 },
+]
+
+function SlideshowSection({ initialIdleMins }: { initialIdleMins: number | null }) {
+  const [current, setCurrent] = useState<number | null>(initialIdleMins)
+  const [saving, setSaving] = useState(false)
+
+  const apply = async (value: number | null) => {
+    setCurrent(value)
+    setSaving(true)
+    try {
+      await patchDeviceState({ slideshowIdleMins: value })
+      toast.success(value === null ? "Slideshow disabled" : `Slideshow starts after ${value} min${value === 1 ? "" : "s"} idle`)
+    } catch {
+      toast.error("Could not save setting")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Slideshow</h2>
+      <div className="overflow-hidden rounded-3xl bg-card shadow-sm">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
+            <Images className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">Photo slideshow</span>
+            <span className="block text-xs text-muted-foreground">
+              {current === null
+                ? "Disabled — tap any time to start manually"
+                : `Starts after ${current} min${current === 1 ? "" : "s"} of inactivity`}
+            </span>
+          </span>
+          {saving && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+        </div>
+        <div className="flex flex-wrap gap-1.5 border-t border-border/60 px-4 py-3">
+          {IDLE_OPTIONS.map((opt) => {
+            const active = opt.value === current
+            return (
+              <button
+                key={String(opt.value)}
+                type="button"
+                onClick={() => void apply(opt.value)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-xs font-semibold transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {opt.label}
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex items-start gap-2.5 border-t border-border/60 px-4 py-3">
+          <Timer className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">
+            Tap anywhere on screen to dismiss the slideshow. Requires at least one uploaded photo.
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function CalendarIntegrationSection() {
   const { calendars, addCalendar } = useStore()
   const [importProvider, setImportProvider] = useState<"google" | "microsoft" | null>(null)
@@ -2338,6 +2416,9 @@ export function SettingsView() {
 
       {/* Language & Region — OS level */}
       <LanguageRegionSection initialOrientation={deviceState.orientation} />
+
+      {/* Slideshow idle timer */}
+      <SlideshowSection initialIdleMins={deviceState.slideshowIdleMins ?? 5} />
 
       {/* Hub actions */}
       <HubActionsSection />

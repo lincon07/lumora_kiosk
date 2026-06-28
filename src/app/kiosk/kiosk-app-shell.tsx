@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { SideNav } from "@/components/ui/reusables/side-nav"
 import { HeaderNav } from "@/components/ui/reusables/header-nav"
@@ -11,11 +11,14 @@ import { ListsView } from "@/app/lists/lists"
 import { MealsView } from "@/app/meals/meals"
 import { PhotosView } from "@/app/photos/photos"
 import { SettingsView } from "@/app/settings/settings"
+import { SlideshowScreen } from "./slideshow-screen"
 import { useStore, type TabKey } from "@/lib/store"
 import { SystemStatusBar } from "@/components/ui/reusables/system-status-bar"
 import { liveSocket } from "@/lib/local-api"
 import { restartHub, reloadDisplay, clearCache, addLog } from "@/lib/hub"
 import { setOrientation } from "@/lib/locale-service"
+import { patchDeviceState } from "@/lib/device-state"
+import { useKiosk } from "@/lib/kiosk-provider"
 
 const todaySubtitle = new Date().toLocaleDateString(undefined, {
   weekday: "long",
@@ -38,9 +41,41 @@ const headers: Record<TabKey, { title: string; subtitle?: string; showMembers: b
  * device/connection panel instead of the account settings.
  */
 export function KioskAppShell() {
-  const { tab, setTab, loading } = useStore()
+  const { tab, setTab, loading, photos } = useStore()
+  const { deviceState } = useKiosk()
   const head = headers[tab]
 
+  const [slideshowActive, setSlideshowActive] = useState(false)
+  // Keep idle mins in local state so hub commands can update it live without a full reload
+  const [idleMins, setIdleMins] = useState<number | null>(deviceState.slideshowIdleMins ?? 5)
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Sync from deviceState when it changes (e.g. after local settings save)
+  useEffect(() => {
+    setIdleMins(deviceState.slideshowIdleMins ?? 5)
+  }, [deviceState.slideshowIdleMins])
+
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+    if (!idleMins || photos.length === 0) return
+    idleTimerRef.current = setTimeout(
+      () => setSlideshowActive(true),
+      idleMins * 60 * 1000,
+    )
+  }, [idleMins, photos.length])
+
+  // Start/restart the idle timer on any user activity
+  useEffect(() => {
+    resetIdleTimer()
+    const events = ["pointermove", "pointerdown", "keydown", "scroll", "touchstart"] as const
+    for (const ev of events) window.addEventListener(ev, resetIdleTimer, { passive: true })
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+      for (const ev of events) window.removeEventListener(ev, resetIdleTimer)
+    }
+  }, [resetIdleTimer])
+
+  // Remote hub commands
   useEffect(() => {
     return liveSocket.subscribeHubCommand((cmd) => {
       switch (cmd.type) {
@@ -55,49 +90,62 @@ export function KioskAppShell() {
           break
         case "set_orientation":
           void setOrientation(cmd.orientation)
-            .then((ok) => {
-              if (!ok) addLog("warning", "system", "Remote orientation change failed")
-            })
+            .then((ok) => { if (!ok) addLog("warning", "system", "Remote orientation change failed") })
+          break
+        case "set_idle_mins":
+          setIdleMins(cmd.minutes)
+          void patchDeviceState({ slideshowIdleMins: cmd.minutes })
           break
       }
     })
   }, [])
 
+  const dismissSlideshow = useCallback(() => {
+    setSlideshowActive(false)
+    resetIdleTimer()
+  }, [resetIdleTimer])
+
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background">
-      {/* System status bar — WiFi, date, clock — always visible at top */}
-      <SystemStatusBar />
+    <>
+      <div className="flex h-dvh flex-col overflow-hidden bg-background">
+        {/* System status bar — WiFi, date, clock — always visible at top */}
+        <SystemStatusBar />
 
-      {/* flex-1 + overflow-hidden so this row fills remaining height exactly */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar — fixed height, no scroll */}
-        <SideNav active={tab} onChange={setTab} />
+        {/* flex-1 + overflow-hidden so this row fills remaining height exactly */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Sidebar — fixed height, no scroll */}
+          <SideNav active={tab} onChange={setTab} />
 
-        {/* Right panel: header + optional chips + scrollable content */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <HeaderNav title={head.title} subtitle={head.subtitle} />
-          {head.showMembers ? <MemberChips /> : null}
+          {/* Right panel: header + optional chips + scrollable content */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <HeaderNav title={head.title} subtitle={head.subtitle} />
+            {head.showMembers ? <MemberChips /> : null}
 
-          {/* Only this element scrolls — overflow-y-auto, never x */}
-          <main className={`overflow-x-hidden ${tab === "calendar" ? "flex flex-1 flex-col overflow-hidden" : "flex-1 overflow-y-auto"}`}>
-            {loading && tab !== "settings" ? (
-              <div className="flex items-center justify-center py-24">
-                <Loader2 className="size-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : tab === "calendar" ? (
-              <CalendarView />
-            ) : (
-              <div className="mx-auto max-w-6xl px-4 py-4">
-                {tab === "chores" && <ChoresView />}
-                {tab === "lists" && <ListsView />}
-                {tab === "meals" && <MealsView />}
-                {tab === "photos" && <PhotosView />}
-                {tab === "settings" && <SettingsView />}
-              </div>
-            )}
-          </main>
+            {/* Only this element scrolls — overflow-y-auto, never x */}
+            <main className={`overflow-x-hidden ${tab === "calendar" ? "flex flex-1 flex-col overflow-hidden" : "flex-1 overflow-y-auto"}`}>
+              {loading && tab !== "settings" ? (
+                <div className="flex items-center justify-center py-24">
+                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : tab === "calendar" ? (
+                <CalendarView />
+              ) : (
+                <div className="mx-auto max-w-6xl px-4 py-4">
+                  {tab === "chores" && <ChoresView />}
+                  {tab === "lists" && <ListsView />}
+                  {tab === "meals" && <MealsView />}
+                  {tab === "photos" && <PhotosView />}
+                  {tab === "settings" && <SettingsView />}
+                </div>
+              )}
+            </main>
+          </div>
         </div>
       </div>
-    </div>
+
+      {slideshowActive && photos.length > 0 && (
+        <SlideshowScreen photos={photos} onDismiss={dismissSlideshow} />
+      )}
+    </>
   )
 }

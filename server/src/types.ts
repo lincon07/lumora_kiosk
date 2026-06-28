@@ -176,6 +176,7 @@ export type HubCommand =
   | { type: "reload" }
   | { type: "clear_cache" }
   | { type: "set_orientation"; orientation: "normal" | "left" | "right" | "inverted" | "portrait" }
+  | { type: "set_idle_mins"; minutes: number | null }
 
 // ---------------------------------------------------------------------------
 // Socket.IO event map

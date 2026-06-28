@@ -25,6 +25,7 @@ import { notify } from "./push"
 import {
   loadDeviceState,
   patchDeviceState,
+  DEFAULT_DEVICE_STATE,
   type DeviceState,
 } from "./device-state"
 import type { SetupValues } from "@/app/kiosk/setup/setup-wizard"
@@ -98,9 +99,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, msg: string): Promise<T
 
 export function KioskProvider({ children }: { children: ReactNode }) {
   const [state, setState]                   = useState<KioskState>(INITIAL_STATE)
-  const [deviceState, setDeviceState]       = useState<DeviceState>({
-    setupComplete: false, language: null, timezone: null, deviceName: null, orientation: null,
-  })
+  const [deviceState, setDeviceState]       = useState<DeviceState>(DEFAULT_DEVICE_STATE)
   const [phase, setPhase]                   = useState<KioskPhase>("splash")
   const [loading, setLoading]               = useState(true)
   const [initError, setInitError]           = useState<string | null>(null)

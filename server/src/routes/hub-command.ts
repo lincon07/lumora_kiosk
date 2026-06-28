@@ -16,7 +16,7 @@ import type { HubCommand } from "../types"
 
 export const hubCommandRouter = Router()
 
-const VALID_TYPES = new Set(["restart", "reload", "clear_cache", "set_orientation"])
+const VALID_TYPES = new Set(["restart", "reload", "clear_cache", "set_orientation", "set_idle_mins"])
 const VALID_ORIENTATIONS = new Set(["normal", "left", "right", "inverted", "portrait"])
 
 hubCommandRouter.post("/command", requireAuth, (req, res) => {
@@ -44,6 +44,13 @@ hubCommandRouter.post("/command", requireAuth, (req, res) => {
       return
     }
     cmd = { type: "set_orientation", orientation: orientation as "normal" | "left" | "right" | "inverted" | "portrait" }
+  } else if (type === "set_idle_mins") {
+    const minutes = body.minutes
+    if (minutes !== null && (typeof minutes !== "number" || minutes < 1 || minutes > 60)) {
+      res.status(400).json({ error: "minutes must be a number 1–60, or null to disable." })
+      return
+    }
+    cmd = { type: "set_idle_mins", minutes: minutes as number | null }
   } else {
     cmd = { type } as HubCommand
   }

@@ -34,6 +34,8 @@ export type DeviceState = {
   deviceName: string | null
   /** xrandr rotation applied on boot: "normal" | "left" | "right" | "inverted". */
   orientation: string | null
+  /** Minutes of inactivity before the photo slideshow starts. Null = disabled. */
+  slideshowIdleMins: number | null
 }
 
 export const DEFAULT_DEVICE_STATE: DeviceState = {
@@ -42,6 +44,7 @@ export const DEFAULT_DEVICE_STATE: DeviceState = {
   timezone: null,
   deviceName: null,
   orientation: null,
+  slideshowIdleMins: 5,
 }
 
 const STORE_FILE = "device-state.json"
@@ -108,6 +111,7 @@ function normalize(value: unknown): DeviceState {
     timezone: v.timezone ?? null,
     deviceName: v.deviceName ?? null,
     orientation: v.orientation ?? null,
+    slideshowIdleMins: typeof v.slideshowIdleMins === "number" ? v.slideshowIdleMins : 5,
   }
 }
 

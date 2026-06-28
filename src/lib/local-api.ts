@@ -236,7 +236,7 @@ function toPhoto(r: Row): Photo {
   // tags resolve correctly when served from any kiosk IP on the LAN.
   const rawSrc = (r.src ?? r.file_path ?? "") as string
   const src = rawSrc.startsWith("http") ? rawSrc : `${LOCAL_API_BASE}${rawSrc}`
-  return { id: r.id as string, src, caption: (r.caption ?? "") as string }
+  return { id: r.id as string, src, caption: (r.caption ?? "") as string, createdAt: (r.created_at ?? r.createdAt ?? undefined) as string | undefined }
 }
 
 function toInvite(r: Row): Invite {
@@ -286,6 +286,7 @@ export type HubCommandEvent =
   | { type: "reload" }
   | { type: "clear_cache" }
   | { type: "set_orientation"; orientation: "normal" | "left" | "right" | "inverted" | "portrait" }
+  | { type: "set_idle_mins"; minutes: number | null }
 
 type LiveListener = (event: LiveEvent) => void
 type HubCommandListener = (cmd: HubCommandEvent) => void
@@ -372,6 +373,7 @@ export type HubCommandPayload =
   | { type: "reload" }
   | { type: "clear_cache" }
   | { type: "set_orientation"; orientation: "normal" | "left" | "right" | "inverted" | "portrait" }
+  | { type: "set_idle_mins"; minutes: number | null }
 
 /**
  * Ask the server to broadcast a hub command to all kiosk devices in the household.
