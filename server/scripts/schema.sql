@@ -90,23 +90,20 @@ CREATE INDEX IF NOT EXISTS idx_calendars_household ON calendars(household_id);
 -- events
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS events (
-  id           TEXT PRIMARY KEY,
-  household_id TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-  calendar_id  TEXT REFERENCES calendars(id) ON DELETE SET NULL,
-  title        TEXT NOT NULL,
-  date         TEXT NOT NULL,   -- ISO date yyyy-mm-dd
-  time         TEXT,            -- HH:MM or empty
-  start_hour   REAL NOT NULL DEFAULT 0,
-  end_hour     REAL NOT NULL DEFAULT 0,
-  member_ids   TEXT NOT NULL DEFAULT '[]',
-  location     TEXT,
-  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  id              TEXT PRIMARY KEY,
+  household_id    TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  calendar_id     TEXT REFERENCES calendars(id) ON DELETE SET NULL,
+  title           TEXT NOT NULL,
+  date            TEXT NOT NULL,   -- ISO date yyyy-mm-dd
+  time            TEXT,            -- HH:MM or empty
+  start_hour      REAL NOT NULL DEFAULT 0,
+  end_hour        REAL NOT NULL DEFAULT 0,
+  member_ids      TEXT NOT NULL DEFAULT '[]',
+  location        TEXT,
+  source          TEXT,            -- 'google' | 'microsoft' | NULL for manual
+  source_event_id TEXT,            -- provider event id for deduplication
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
-
--- source/source_event_id allow events imported from Google/Outlook to be
--- upserted idempotently without creating duplicates.
-ALTER TABLE events ADD COLUMN source          TEXT;         -- 'google' | 'microsoft'
-ALTER TABLE events ADD COLUMN source_event_id TEXT;         -- provider's event id
 
 CREATE INDEX IF NOT EXISTS idx_events_household ON events(household_id);
 CREATE INDEX IF NOT EXISTS idx_events_date      ON events(date);

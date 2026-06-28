@@ -84,24 +84,25 @@ function migrate(db: Database.Database): void {
   }
   const sql = fs.readFileSync(schemaPath, "utf8")
 
-  // Split on semicolons so we can run ALTER TABLE statements individually —
-  // ALTER TABLE ADD COLUMN fails if the column already exists, so we swallow
-  // "duplicate column" errors to keep the migration idempotent.
-  const statements = sql
-    .split(";")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith("--"))
+  // Run the entire schema as one exec — all statements are CREATE TABLE IF NOT
+  // EXISTS, CREATE INDEX IF NOT EXISTS, or PRAGMAs, so this is safe to replay.
+  db.exec(sql)
 
-  for (const stmt of statements) {
+  // Idempotent column additions for existing databases that pre-date a schema
+  // change. ALTER TABLE ADD COLUMN is only run when the column is missing.
+  const addColumnSafe = (table: string, column: string, type: string): void => {
     try {
-      db.exec(stmt + ";")
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      // Ignore "duplicate column name" errors from ALTER TABLE ADD COLUMN.
-      if (msg.includes("duplicate column name")) continue
-      throw err
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+    } catch {
+      // Column already exists — ignore.
     }
   }
+
+  addColumnSafe("events", "source",          "TEXT")
+  addColumnSafe("events", "source_event_id", "TEXT")
+  addColumnSafe("lists",      "position", "INTEGER NOT NULL DEFAULT 0")
+  addColumnSafe("list_items", "position", "INTEGER NOT NULL DEFAULT 0")
+
   console.log("[lumora] Database schema applied:", DB_PATH)
 }
 
