@@ -83,8 +83,25 @@ function migrate(db: Database.Database): void {
     throw new Error(`Schema file not found: ${schemaPath}`)
   }
   const sql = fs.readFileSync(schemaPath, "utf8")
-  // better-sqlite3 exec() runs all statements in a single call.
-  db.exec(sql)
+
+  // Split on semicolons so we can run ALTER TABLE statements individually —
+  // ALTER TABLE ADD COLUMN fails if the column already exists, so we swallow
+  // "duplicate column" errors to keep the migration idempotent.
+  const statements = sql
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && !s.startsWith("--"))
+
+  for (const stmt of statements) {
+    try {
+      db.exec(stmt + ";")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // Ignore "duplicate column name" errors from ALTER TABLE ADD COLUMN.
+      if (msg.includes("duplicate column name")) continue
+      throw err
+    }
+  }
   console.log("[lumora] Database schema applied:", DB_PATH)
 }
 

@@ -21,6 +21,7 @@ function rowToEvent(r: Record<string, unknown>): CalendarEvent {
     memberIds: parseJson<string[]>(r.member_ids, []),
     location: (r.location as string) ?? undefined,
     createdAt: r.created_at as string,
+    source: (r.source as string) ?? undefined,
   }
 }
 

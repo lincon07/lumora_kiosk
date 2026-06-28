@@ -78,6 +78,7 @@ export type CalendarEvent = {
   memberIds: string[]
   location?: string
   createdAt: string
+  source?: string
 }
 
 export type Chore = {

@@ -7,6 +7,9 @@
  * Every DB write broadcasts a Socket.IO event to the household room.
  */
 
+import path from "path"
+import dotenv from "dotenv"
+dotenv.config({ path: path.resolve(__dirname, "../../.env") })
 import express, { type Request, type Response, type NextFunction } from "express"
 import { createServer } from "http"
 import { Server as SocketIOServer } from "socket.io"
@@ -29,6 +32,8 @@ import { notificationsRouter } from "./routes/notifications"
 import { photosRouter } from "./routes/photos"
 import { snapshotRouter } from "./routes/snapshot"
 import { kioskRouter } from "./routes/kiosk"
+import { calendarProvidersRouter } from "./routes/calendar-providers"
+import { startCalendarSyncScheduler } from "./services/calendar-sync"
 
 import type { ServerToClientEvents, ClientToServerEvents, SocketData } from "./types"
 
@@ -39,6 +44,7 @@ import type { ServerToClientEvents, ClientToServerEvents, SocketData } from "./t
 ensureDataDir()
 getOrCreateSecret() // generate HMAC secret on first boot
 getDb()             // open DB and run schema migration
+startCalendarSyncScheduler() // hourly Google / Microsoft calendar sync
 
 const PORT = Number(process.env.LUMORA_PORT ?? 4000)
 
@@ -103,6 +109,7 @@ app.use("/api/v1/snapshot", snapshotRouter)
 app.use("/api/v1/kiosk", kioskRouter)
 // Alias used by kiosk-status.ts heartbeat publisher
 app.use("/api/v1/kiosk-devices", kioskRouter)
+app.use("/api/v1/calendar-providers", calendarProvidersRouter)
 
 // Health check
 app.get("/health", (_req, res) => {

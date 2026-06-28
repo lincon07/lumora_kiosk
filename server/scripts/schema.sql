@@ -103,8 +103,15 @@ CREATE TABLE IF NOT EXISTS events (
   created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+-- source/source_event_id allow events imported from Google/Outlook to be
+-- upserted idempotently without creating duplicates.
+ALTER TABLE events ADD COLUMN source          TEXT;         -- 'google' | 'microsoft'
+ALTER TABLE events ADD COLUMN source_event_id TEXT;         -- provider's event id
+
 CREATE INDEX IF NOT EXISTS idx_events_household ON events(household_id);
 CREATE INDEX IF NOT EXISTS idx_events_date      ON events(date);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source ON events(household_id, source, source_event_id)
+  WHERE source IS NOT NULL AND source_event_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- chores
@@ -229,3 +236,20 @@ CREATE TABLE IF NOT EXISTS kiosk_devices (
 );
 
 CREATE INDEX IF NOT EXISTS idx_kiosk_devices_household ON kiosk_devices(household_id);
+
+-- ---------------------------------------------------------------------------
+-- calendar_providers  (OAuth tokens for Google / Microsoft calendar import)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS calendar_providers (
+  id            TEXT PRIMARY KEY,
+  household_id  TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL,   -- 'google' | 'microsoft'
+  access_token  TEXT NOT NULL,
+  refresh_token TEXT,
+  expires_at    INTEGER,         -- Unix timestamp (seconds)
+  email         TEXT,            -- provider account email shown in UI
+  connected_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(household_id, provider)
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_providers_household ON calendar_providers(household_id);
