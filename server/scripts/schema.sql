@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_household ON events(household_id);
 CREATE INDEX IF NOT EXISTS idx_events_date      ON events(date);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source ON events(household_id, source, source_event_id)
-  WHERE source IS NOT NULL AND source_event_id IS NOT NULL;
+  ;
 
 -- ---------------------------------------------------------------------------
 -- chores
@@ -250,3 +250,4 @@ CREATE TABLE IF NOT EXISTS calendar_providers (
 );
 
 CREATE INDEX IF NOT EXISTS idx_calendar_providers_household ON calendar_providers(household_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_source ON events(household_id, source, source_event_id) ;
