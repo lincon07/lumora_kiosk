@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0",
+  "notes": "this is a yest from portal",
+  "pub_date": "2026-06-29T07:10:19.716Z",
+  "platforms": {
+    "linux-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTT0E5aGlDZDY5czQrdk5ocnhYdFhZN1JiUHZnUWt3dDJRU21VVElGd3hOL0F4enh5NFd3S2ZPOGEySno3aEkxNVo2c1FrQll0alpmM3c0OVhzQnZMTlE0cEVQUHM2SWdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNzE3MDIwCWZpbGU6MmQzZDBmMGUtMTBjNi00MDk1LTg5NTAtZTE1MDNjMTcxNzRkLWx1bW9yYS1raW9zay5BcHBJbWFnZQpYTjZFQVpaNnljVEJKc00xM2tJTzhKMXdpRUw4V2xsWklCQW9SY29vcUwyelFEOW8zTjNGOFEvODExS25jQUZBWEluVTBlMDdGbWhVWXllVlB0YjRDZz09Cg==",
+      "url": "https://github.com/lincon07/lumora_kiosk/releases/download/v0.2.0/lumora-kiosk.AppImage"
+    }
+  }
+}
