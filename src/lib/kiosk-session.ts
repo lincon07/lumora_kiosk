@@ -17,8 +17,9 @@
 
 import { LOCAL_API_BASE } from "./local-api"
 
-const TOKEN_KEY  = "lumora.kiosk.deviceToken"
-const NAME_KEY   = "lumora.kiosk.deviceName"
+const TOKEN_KEY      = "lumora.kiosk.deviceToken"
+const NAME_KEY       = "lumora.kiosk.deviceName"
+const DEVICE_ID_KEY  = "lumora.device.id"
 
 let _registerPromise: Promise<string | null> | null = null
 
@@ -57,7 +58,17 @@ export function getDeviceToken(): string | null {
 }
 
 function setDeviceToken(token: string) {
-  try { localStorage.setItem(TOKEN_KEY, token) } catch { /* noop */ }
+  try {
+    localStorage.setItem(TOKEN_KEY, token)
+    // Decode the JWT payload (no verification needed — just need the sub/device_id)
+    const payload = JSON.parse(atob(token.split('.')[1])) as { sub?: string }
+    if (payload.sub) localStorage.setItem(DEVICE_ID_KEY, payload.sub)
+  } catch { /* noop */ }
+}
+
+/** Returns the local hub device UUID (decoded from the stored JWT). */
+export function getLocalDeviceId(): string | null {
+  try { return localStorage.getItem(DEVICE_ID_KEY) } catch { return null }
 }
 
 function clearDeviceToken() {

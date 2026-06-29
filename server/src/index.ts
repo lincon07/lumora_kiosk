@@ -124,6 +124,22 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", version: "1.0.0", ts: new Date().toISOString() })
 })
 
+// Central hub identity — no auth, used by iOS/kiosk to discover the central hub_id
+// so they can pass it when registering with the central API.
+app.get("/central-identity", (_req: Request, res: Response) => {
+  const creds = (() => {
+    try {
+      const p = path.join(process.env.HOME ?? ".", ".lumora", "central.json")
+      return JSON.parse(require("fs").readFileSync(p, "utf-8")) as { hub_id: string }
+    } catch { return null }
+  })()
+  if (!creds) {
+    res.status(503).json({ error: "Hub not yet registered with central API — retry in a few seconds" })
+    return
+  }
+  res.json({ hub_id: creds.hub_id })
+})
+
 // Connection health — no auth required so factory-reset kiosks and iOS can hit it
 // Returns the full registration + connectivity status for every step of the chain.
 app.get("/connection-health", async (_req: Request, res: Response) => {

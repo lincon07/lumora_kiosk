@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { tokenStore } from "./local-api"
+import { getLocalDeviceId } from "./kiosk-session"
 import { getCentralToken, centralSocket } from "./central-socket"
 
 const LOCAL_API_BASE =
@@ -91,7 +92,7 @@ export async function checkConnectionHealth(): Promise<ConnectionHealth> {
   })()
 
   // ── Derive per-kiosk registration status from hub health response ─────────
-  const localDeviceId = localStorage.getItem("lumora.device.id")
+  const localDeviceId = getLocalDeviceId()
   const hubData = hubHealth.data as {
     hub?: { registered_with_central: boolean; hub_id: string | null; central_socket_connected: boolean }
     kiosks?: Array<{ local_device_id: string; central_registered: boolean }>

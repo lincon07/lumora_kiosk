@@ -109,6 +109,8 @@ import { patchDeviceState } from "@/lib/device-state"
 import { CalendarImportSheet } from "@/app/calendar/CalendarImportSheet"
 import { ActivityLog } from "@/app/settings/ActivityLog"
 import { LOCAL_API_BASE, tokenStore } from "@/lib/local-api"
+import { centralSocket, getCentralToken } from "@/lib/central-socket"
+import { getLocalDeviceId } from "@/lib/kiosk-session"
 
 
 function Toggle({
@@ -378,6 +380,122 @@ function HistoryLogsSheet({ open, onClose }: { open: boolean; onClose: () => voi
         )}
       </ul>
     </BottomSheet>
+  )
+}
+
+// ─── Central Connection Section ───────────────────────────────────────────────
+
+function CentralConnectionSection() {
+  const [connected, setConnected] = useState(centralSocket.connected)
+  const [hasToken, setHasToken] = useState(!!getCentralToken())
+  const [busy, setBusy] = useState(false)
+
+  // Keep connected state in sync
+  useEffect(() => {
+    const unsub = centralSocket.onDisconnect(() => setConnected(false))
+    const interval = setInterval(() => setConnected(centralSocket.connected), 2000)
+    return () => { unsub(); clearInterval(interval) }
+  }, [])
+
+  const reconnect = async () => {
+    setBusy(true)
+    try {
+      const localDeviceId = getLocalDeviceId()
+      if (!localDeviceId) {
+        toast.error("Device not registered with local hub yet — try restarting the app")
+        return
+      }
+      const token = await centralSocket.fetchAndStoreCentralToken(localDeviceId)
+      if (!token) {
+        toast.error("Hub hasn't registered this kiosk with the central API yet — restart the hub server")
+        return
+      }
+      centralSocket.connect(token)
+      setHasToken(true)
+      setConnected(centralSocket.connected)
+      toast.success("Reconnected to central server")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Reconnect failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const reRegister = async () => {
+    setBusy(true)
+    try {
+      centralSocket.disconnect()
+      localStorage.removeItem("lumora.central.token")
+      setHasToken(false)
+      setConnected(false)
+      const localDeviceId = getLocalDeviceId()
+      if (!localDeviceId) {
+        toast.error("No local device ID — kiosk needs to register with hub first")
+        return
+      }
+      const token = await centralSocket.fetchAndStoreCentralToken(localDeviceId)
+      if (!token) {
+        toast.error("Hub hasn't registered this kiosk with the central API yet — restart the hub server")
+        return
+      }
+      centralSocket.connect(token)
+      setHasToken(true)
+      setConnected(centralSocket.connected)
+      toast.success("Re-registered with central server")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Re-registration failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const statusClass = connected
+    ? "bg-member-green/15 text-member-green"
+    : hasToken
+      ? "bg-member-amber/15 text-member-amber"
+      : "bg-secondary text-muted-foreground"
+  const statusLabel = connected ? "Connected" : hasToken ? "Disconnected" : "Not registered"
+
+  return (
+    <section>
+      <h2 className="px-1 pb-2 text-sm font-semibold text-muted-foreground">Cloud Connection</h2>
+      <div className="overflow-hidden rounded-3xl bg-card shadow-sm">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-secondary text-foreground">
+            <Globe className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">Central server</span>
+            <span className="block text-xs text-muted-foreground">
+              {connected ? "Live data sync active" : hasToken ? "Token stored, socket offline" : "Not yet registered"}
+            </span>
+          </span>
+          <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", statusClass)}>
+            {statusLabel}
+          </span>
+        </div>
+        <div className="flex gap-2 border-t border-border/60 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => void reconnect()}
+            disabled={busy || connected}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            Reconnect
+          </button>
+          <button
+            type="button"
+            onClick={() => void reRegister()}
+            disabled={busy}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-secondary py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary/70 disabled:opacity-40"
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
+            Re-register
+          </button>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -2419,6 +2537,9 @@ export function SettingsView() {
 
       {/* Slideshow idle timer */}
       <SlideshowSection initialIdleMins={deviceState.slideshowIdleMins ?? 5} />
+
+      {/* Cloud connection */}
+      <CentralConnectionSection />
 
       {/* Hub actions */}
       <HubActionsSection />

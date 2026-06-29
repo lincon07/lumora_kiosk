@@ -28,6 +28,7 @@ import {
 import { api, syncGuard, type ApiMember, type CreateMemberInput, type Invite } from "./api"
 import { tokenStore } from "./local-api"
 import { centralSocket } from "./central-socket"
+import { getLocalDeviceId } from "./kiosk-session"
 import { useOptionalAuth } from "./auth"
 import { notify } from "./push"
 import { type KioskDeviceStatus } from "./kiosk-status"
@@ -399,7 +400,7 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
     // In kiosk mode the device id is available from the kiosk_devices table;
     // we use it to fetch the central JWT from the local hub's API.
     if (kioskMode) {
-      const localDeviceId = localStorage.getItem("lumora.device.id")
+      const localDeviceId = getLocalDeviceId()
       if (localDeviceId && !centralSocket.connected) {
         void centralSocket.fetchAndStoreCentralToken(localDeviceId).then((token) => {
           if (token) centralSocket.connect(token)
