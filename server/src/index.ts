@@ -38,7 +38,7 @@ import { icsRouter } from "./routes/ics"
 import { hubCommandRouter } from "./routes/hub-command"
 import { startCalendarSyncScheduler } from "./services/calendar-sync"
 import { ensureCentralRegistration } from "./lib/central-registry"
-import { connectHubToCentral } from "./lib/central-socket-client"
+import { connectHubToCentral, isCentralConnected } from "./lib/central-socket-client"
 
 import type { ServerToClientEvents, ClientToServerEvents, SocketData } from "./types"
 
@@ -122,6 +122,86 @@ app.use("/ics", icsRouter)
 // Health check
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", version: "1.0.0", ts: new Date().toISOString() })
+})
+
+// Connection health — no auth required so factory-reset kiosks and iOS can hit it
+// Returns the full registration + connectivity status for every step of the chain.
+app.get("/connection-health", async (_req: Request, res: Response) => {
+  const CENTRAL_API_URL    = process.env.CENTRAL_API_URL    ?? "http://localhost:4000"
+  const CENTRAL_SOCKET_URL = process.env.CENTRAL_SOCKET_URL ?? "http://localhost:5001"
+
+  // ── Central registry credentials ─────────────────────────────────────────
+  const creds = (() => {
+    try {
+      const p = path.join(process.env.HOME ?? ".", ".lumora", "central.json")
+      return JSON.parse(require("fs").readFileSync(p, "utf-8")) as {
+        hub_id: string; hub_token: string; hub_jwt: string
+        kiosks: Record<string, { central_device_id: string; central_jwt: string }>
+      }
+    } catch { return null }
+  })()
+
+  // ── Ping central API ──────────────────────────────────────────────────────
+  const centralApiPing = await (async () => {
+    try {
+      const r = await fetch(`${CENTRAL_API_URL}/health`, { signal: AbortSignal.timeout(3000) })
+      return { ok: r.ok, status: r.status }
+    } catch (e) { return { ok: false, error: (e as Error).message } }
+  })()
+
+  // ── Ping central socket health endpoint ──────────────────────────────────
+  const centralSocketPing = await (async () => {
+    try {
+      const r = await fetch(`${CENTRAL_SOCKET_URL}/health`, { signal: AbortSignal.timeout(3000) })
+      return { ok: r.ok, status: r.status }
+    } catch (e) { return { ok: false, error: (e as Error).message } }
+  })()
+
+  // ── Paired kiosk devices ──────────────────────────────────────────────────
+  const db = getDb()
+  const kiosks = (db.prepare(
+    "SELECT id, device_name, household_id FROM kiosk_devices"
+  ).all() as Array<{ id: string; device_name: string; household_id: string | null }>)
+    .map((k) => ({
+      local_device_id:    k.id,
+      device_name:        k.device_name,
+      paired:             !!k.household_id,
+      central_registered: !!(creds?.kiosks?.[k.id]),
+      central_device_id:  creds?.kiosks?.[k.id]?.central_device_id ?? null,
+      has_central_jwt:    !!(creds?.kiosks?.[k.id]?.central_jwt),
+    }))
+
+  res.json({
+    ts:  new Date().toISOString(),
+
+    hub: {
+      registered_with_central: !!creds,
+      hub_id:                  creds?.hub_id ?? null,
+      central_socket_connected: isCentralConnected(),
+    },
+
+    central_api: {
+      url:  CENTRAL_API_URL,
+      ...centralApiPing,
+    },
+
+    central_socket: {
+      url:  CENTRAL_SOCKET_URL,
+      ...centralSocketPing,
+    },
+
+    kiosks,
+
+    next_steps: [
+      ...(!creds                      ? ["Hub not registered with central API — check CENTRAL_API_URL in server/.env and restart hub"] : []),
+      ...(!isCentralConnected()       ? ["Hub not connected to central socket — check CENTRAL_SOCKET_URL and hub JWT"] : []),
+      ...(!centralApiPing.ok          ? [`Central API unreachable at ${CENTRAL_API_URL}`] : []),
+      ...(!centralSocketPing.ok       ? [`Central socket unreachable at ${CENTRAL_SOCKET_URL}`] : []),
+      ...(kiosks.filter(k => k.paired && !k.central_registered).map(k =>
+        `Kiosk "${k.device_name}" (${k.local_device_id}) is paired locally but not registered with central — hub will register on next restart`
+      )),
+    ],
+  })
 })
 
 // 404 catch-all

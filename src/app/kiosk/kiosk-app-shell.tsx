@@ -15,6 +15,7 @@ import { SlideshowScreen } from "./slideshow-screen"
 import { useStore, type TabKey } from "@/lib/store"
 import { SystemStatusBar } from "@/components/ui/reusables/system-status-bar"
 import { centralSocket } from "@/lib/central-socket"
+import { logConnectionHealth } from "@/lib/connection-health"
 import { restartHub, reloadDisplay, clearCache, addLog } from "@/lib/hub"
 import { setOrientation } from "@/lib/locale-service"
 import { patchDeviceState } from "@/lib/device-state"
@@ -54,6 +55,9 @@ export function KioskAppShell() {
   useEffect(() => {
     setIdleMins(deviceState.slideshowIdleMins ?? 5)
   }, [deviceState.slideshowIdleMins])
+
+  // Log full connection health on mount — visible in Tauri devtools console
+  useEffect(() => { void logConnectionHealth() }, [])
 
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
