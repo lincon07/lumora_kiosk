@@ -1,11 +1,11 @@
 {
-  "version": "0.2.0",
-  "notes": "this is a yest from portal",
-  "pub_date": "2026-06-29T07:10:19.716Z",
+  "version": "3.0.0",
+  "notes": "this is a test for auto update",
+  "pub_date": "2026-06-29T07:13:56.435Z",
   "platforms": {
     "linux-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTT0E5aGlDZDY5czQrdk5ocnhYdFhZN1JiUHZnUWt3dDJRU21VVElGd3hOL0F4enh5NFd3S2ZPOGEySno3aEkxNVo2c1FrQll0alpmM3c0OVhzQnZMTlE0cEVQUHM2SWdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNzE3MDIwCWZpbGU6MmQzZDBmMGUtMTBjNi00MDk1LTg5NTAtZTE1MDNjMTcxNzRkLWx1bW9yYS1raW9zay5BcHBJbWFnZQpYTjZFQVpaNnljVEJKc00xM2tJTzhKMXdpRUw4V2xsWklCQW9SY29vcUwyelFEOW8zTjNGOFEvODExS25jQUZBWEluVTBlMDdGbWhVWXllVlB0YjRDZz09Cg==",
-      "url": "https://github.com/lincon07/lumora_kiosk/releases/download/v0.2.0/lumora-kiosk.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTT0E5aGlDZDY5czBMdFNUZ1o3UzgwdWJYU1NMczVFYm03WGU5b2kvOHNCUW5NVW1xb0xEVVZTM3FtdlRvN0loRytreERSM1ExOUlDMVMyWTJhUWJPYVBlU1hHSldEWHdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgyNzE3MjM3CWZpbGU6ZDU2N2RiOWMtNGI4Ni00ZmQ2LWE4MjgtODhmY2I0OGRmOGY3LWx1bW9yYS1raW9zay5BcHBJbWFnZQpDcDhCUWNpc25TK2hJVmZ4RlEzUkkybFNaMGlLOVhiczRMb0pzRlFXTzhpRHk0aW91Y3UvdEpIcENvUVZGQ1RsaG9KMHIxOWU1b25WSDNJZVJ2RE9Cdz09Cg==",
+      "url": "https://github.com/lincon07/lumora_kiosk/releases/download/v3.0.0/lumora-kiosk.AppImage"
     }
   }
 }
