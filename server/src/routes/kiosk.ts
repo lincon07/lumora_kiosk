@@ -338,14 +338,35 @@ function genPairingCode(): string {
 // central socket server. Called by the kiosk app on startup.
 // Auth: device JWT (the kiosk's own token from this local hub).
 // ---------------------------------------------------------------------------
-import { getCentralKioskToken } from "../lib/central-registry"
+import { getCentralKioskToken, registerKioskWithCentral } from "../lib/central-registry"
 
 kioskRouter.get("/central-token/:localDeviceId", requireAuth, (req: Request, res: Response): void => {
   const { localDeviceId } = req.params
   const token = getCentralKioskToken(localDeviceId)
   if (!token) {
-    // Central registration is still pending (hub startup async) — client should retry
     res.status(503).json({ error: "Central registration pending — retry in a few seconds" })
+    return
+  }
+  res.json({ token })
+})
+
+// ---------------------------------------------------------------------------
+// POST /request-central-token
+// Lets a kiosk self-trigger its own central API registration on demand.
+// Called when GET /central-token returns 503 (hub missed the kiosk on startup).
+// Auth: device JWT (the kiosk's own token).
+// ---------------------------------------------------------------------------
+kioskRouter.post("/request-central-token", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const localDeviceId = (req as Request & { auth?: { sub?: string } }).auth?.sub
+  if (!localDeviceId) { res.status(400).json({ error: "Could not resolve device ID from token" }); return }
+
+  // Check if already registered
+  const existing = getCentralKioskToken(localDeviceId)
+  if (existing) { res.json({ token: existing }); return }
+
+  const token = await registerKioskWithCentral(localDeviceId)
+  if (!token) {
+    res.status(503).json({ error: "Hub could not reach the central API — check CENTRAL_API_URL and ensure the hub is registered" })
     return
   }
   res.json({ token })
