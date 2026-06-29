@@ -37,6 +37,8 @@ import { activityLogsRouter } from "./routes/activity-logs"
 import { icsRouter } from "./routes/ics"
 import { hubCommandRouter } from "./routes/hub-command"
 import { startCalendarSyncScheduler } from "./services/calendar-sync"
+import { ensureCentralRegistration } from "./lib/central-registry"
+import { connectHubToCentral } from "./lib/central-socket-client"
 
 import type { ServerToClientEvents, ClientToServerEvents, SocketData } from "./types"
 
@@ -163,6 +165,16 @@ io.on("connection", (socket) => {
 
 // Wire up the broadcaster so routes can call broadcast().
 setBroadcaster(io)
+
+// Register with the central API and connect to the central socket.
+// Runs asynchronously — hub works fully offline if central is unreachable.
+ensureCentralRegistration()
+  .then((hubJwt) => {
+    if (hubJwt) connectHubToCentral(hubJwt)
+  })
+  .catch((err: unknown) => {
+    console.warn("[central] Registration error:", (err as Error).message)
+  })
 
 // ---------------------------------------------------------------------------
 // Start

@@ -332,5 +332,24 @@ function genPairingCode(): string {
   return `${pick(3)}-${pick(3)}`
 }
 
+// ---------------------------------------------------------------------------
+// GET /central-token/:localDeviceId
+// Returns the central API JWT for a kiosk device so it can connect to the
+// central socket server. Called by the kiosk app on startup.
+// Auth: device JWT (the kiosk's own token from this local hub).
+// ---------------------------------------------------------------------------
+import { getCentralKioskToken } from "../lib/central-registry"
+
+kioskRouter.get("/central-token/:localDeviceId", requireAuth, (req: Request, res: Response): void => {
+  const { localDeviceId } = req.params
+  const token = getCentralKioskToken(localDeviceId)
+  if (!token) {
+    // Central registration is still pending (hub startup async) — client should retry
+    res.status(503).json({ error: "Central registration pending — retry in a few seconds" })
+    return
+  }
+  res.json({ token })
+})
+
 // Re-export signToken so kiosk device tokens can be issued
 export { signToken }

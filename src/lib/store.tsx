@@ -26,7 +26,8 @@ import {
   memberCan,
 } from "./data"
 import { api, syncGuard, type ApiMember, type CreateMemberInput, type Invite } from "./api"
-import { liveSocket, tokenStore, type LiveEvent } from "./local-api"
+import { tokenStore } from "./local-api"
+import { centralSocket } from "./central-socket"
 import { useOptionalAuth } from "./auth"
 import { notify } from "./push"
 import { type KioskDeviceStatus } from "./kiosk-status"
@@ -386,20 +387,25 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       debounce = setTimeout(() => void tick(), 400)
     }
 
-    // Connect the Socket.IO live socket. In kiosk mode we use the device token
-    // and join with "kiosk" as the room id — the server resolves the real
-    // household from the token via the socketAuth middleware. In user mode we
-    // use the household id from the session. Always pass a non-empty string.
-    const socketHouseholdId = auth?.household?.id ?? "kiosk"
-    liveSocket.connect(socketHouseholdId)
-
-    // Subscribe to Socket.IO live events. Each "<table>:<action>" event from
-    // the local server triggers a full re-fetch + reconcile of all collections.
-    // For most households the payload is small so a full reload is fast and
-    // keeps the reconcile logic simple.
-    const unsubscribe = liveSocket.subscribe((_event: LiveEvent) => {
+    // Subscribe to table:action events from the central socket relay.
+    // The hub broadcaster emits hub:relay for every DB write, which the central
+    // socket server relays to all devices in the hub room.
+    // Each event triggers a full re-fetch + reconcile of all collections.
+    const unsubscribe = centralSocket.onTableChange(() => {
       scheduleSync()
     })
+
+    // Ensure the kiosk has a central token so it can stay connected.
+    // In kiosk mode the device id is available from the kiosk_devices table;
+    // we use it to fetch the central JWT from the local hub's API.
+    if (kioskMode) {
+      const localDeviceId = localStorage.getItem("lumora.device.id")
+      if (localDeviceId && !centralSocket.connected) {
+        void centralSocket.fetchAndStoreCentralToken(localDeviceId).then((token) => {
+          if (token) centralSocket.connect(token)
+        })
+      }
+    }
 
     // Focus / visibility refresh to catch events missed while backgrounded.
     const onFocus = () => scheduleSync()
@@ -411,7 +417,6 @@ export function StoreProvider({ children, kioskMode = false }: { children: React
       alive = false
       clearTimeout(debounce)
       unsubscribe()
-      liveSocket.disconnect()
       window.removeEventListener("focus", onFocus)
       document.removeEventListener("visibilitychange", onVisible)
     }

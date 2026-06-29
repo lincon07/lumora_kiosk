@@ -279,10 +279,18 @@ function upsertEvents(
   source: "google" | "microsoft",
   events: NormalisedEvent[],
 ): number {
-  // Skip any events that lack a source_event_id — the ON CONFLICT clause
-  // requires a non-null value to match the unique index.
+  const db = getDb()
+
+  // Load excluded event IDs for this provider so wizard opt-outs are respected.
+  type ExRow = { external_event_id: string }
+  const excluded = new Set(
+    (db
+      .prepare("SELECT external_event_id FROM calendar_excluded_events WHERE household_id=? AND provider=?")
+      .all(householdId, source) as ExRow[]).map((r) => r.external_event_id),
+  )
+
   const validEvents = events.filter(
-    (e) => typeof e.source_event_id === "string" && e.source_event_id.trim() !== "",
+    (e) => typeof e.source_event_id === "string" && e.source_event_id.trim() !== "" && !excluded.has(e.source_event_id),
   )
   if (validEvents.length !== events.length) {
     console.warn(
@@ -290,7 +298,6 @@ function upsertEvents(
     )
   }
 
-  const db = getDb()
   const upsert = db.prepare(`
     INSERT INTO events (id, household_id, calendar_id, title, date, time, start_hour, end_hour, location, source, source_event_id)
     VALUES (@id, @household_id, @calendar_id, @title, @date, @time, @start_hour, @end_hour, @location, @source, @source_event_id)

@@ -14,7 +14,7 @@ import { SettingsView } from "@/app/settings/settings"
 import { SlideshowScreen } from "./slideshow-screen"
 import { useStore, type TabKey } from "@/lib/store"
 import { SystemStatusBar } from "@/components/ui/reusables/system-status-bar"
-import { liveSocket } from "@/lib/local-api"
+import { centralSocket } from "@/lib/central-socket"
 import { restartHub, reloadDisplay, clearCache, addLog } from "@/lib/hub"
 import { setOrientation } from "@/lib/locale-service"
 import { patchDeviceState } from "@/lib/device-state"
@@ -75,9 +75,42 @@ export function KioskAppShell() {
     }
   }, [resetIdleTimer])
 
-  // Remote hub commands
+  // ── Central socket events (OTA, lock, notifications from portal) ──────────
   useEffect(() => {
-    return liveSocket.subscribeHubCommand((cmd) => {
+    const unsubOta = centralSocket.onOtaPush((payload) => {
+      addLog("info", "system", `OTA update available: v${payload.version}`)
+      // TODO: trigger Tauri updater with payload.url + payload.signature
+      // window.__TAURI__?.updater.installUpdate()
+    })
+
+    const unsubLock = centralSocket.onDeviceLock((payload) => {
+      if (payload.locked) {
+        addLog("info", "system", `Device locked for maintenance${payload.reason ? `: ${payload.reason}` : ""}`)
+        // TODO: show maintenance screen overlay
+      } else {
+        addLog("info", "system", "Device unlocked — resuming normal operation")
+      }
+    })
+
+    const unsubNotif = centralSocket.onNotification((payload) => {
+      addLog("info", "system", `Notification: ${payload.title}`)
+      // Notifications ack back to portal
+      if (payload.notification_id) centralSocket.notificationAck(payload.notification_id)
+    })
+
+    const unsubReboot = centralSocket.onReboot(() => {
+      addLog("info", "system", "Remote reboot requested")
+      void restartHub()
+    })
+
+    return () => {
+      unsubOta(); unsubLock(); unsubNotif(); unsubReboot()
+    }
+  }, [])
+
+  // ── hub:command (remote control via central socket) ───────────────────────
+  useEffect(() => {
+    const unsub = centralSocket.onHubCommand((cmd) => {
       switch (cmd.type) {
         case "restart":
           void restartHub()
@@ -98,6 +131,7 @@ export function KioskAppShell() {
           break
       }
     })
+    return () => { unsub() }
   }, [])
 
   const dismissSlideshow = useCallback(() => {

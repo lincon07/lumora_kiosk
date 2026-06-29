@@ -288,3 +288,18 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 
 CREATE INDEX IF NOT EXISTS idx_activity_logs_household ON activity_logs(household_id);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_created   ON activity_logs(created_at);
+
+-- ---------------------------------------------------------------------------
+-- calendar_excluded_events
+-- Per-event opt-outs set during the import wizard. Events whose IDs appear
+-- here are skipped during calendar sync even if the parent calendar is mapped.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS calendar_excluded_events (
+  id               TEXT PRIMARY KEY,
+  household_id     TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+  provider         TEXT NOT NULL,   -- 'google' | 'microsoft'
+  external_event_id TEXT NOT NULL,
+  UNIQUE(household_id, provider, external_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cal_excluded_household ON calendar_excluded_events(household_id);

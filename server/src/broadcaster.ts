@@ -8,6 +8,7 @@
 
 import type { Server } from "socket.io"
 import type { ServerToClientEvents, ClientToServerEvents, SocketData } from "./types"
+import { relayEvent } from "./lib/central-socket-client"
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>
 
@@ -27,4 +28,8 @@ export function broadcast<E extends keyof ServerToClientEvents>(
   const room = `household:${householdId}`
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ;(_io.to(room) as any).emit(event, ...args)
+
+  // Relay the same event via the central socket so kiosks and mobile apps
+  // connected to the relay receive it (replaces the need for a local socket).
+  relayEvent(event as string, args[0])
 }

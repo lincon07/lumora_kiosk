@@ -336,6 +336,97 @@ router.get("/microsoft/external-calendars", async (req: Request, res: Response) 
 })
 
 // ---------------------------------------------------------------------------
+// Preview events — called by the iOS wizard to show upcoming events
+// ---------------------------------------------------------------------------
+
+// GET /api/v1/calendar-providers/google/calendars/:calendarId/events
+router.get("/google/calendars/:calendarId/events", async (req: Request, res: Response) => {
+  const { householdId } = (req as AuthRequest).user
+  if (!householdId) { res.status(403).json({ error: "No household." }); return }
+  const token = await getValidToken(householdId, "google")
+  if (!token) { res.status(404).json({ error: "Google not connected." }); return }
+  const calendarId = req.params.calendarId as string
+  const timeMin = new Date().toISOString()
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?maxResults=30&timeMin=${timeMin}&orderBy=startTime&singleEvents=true`
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+  if (!r.ok) { res.status(502).json({ error: "Google events fetch failed." }); return }
+  type GEvent = { id: string; summary?: string; start: { dateTime?: string; date?: string }; end: { dateTime?: string; date?: string } }
+  const json = (await r.json()) as { items: GEvent[] }
+  res.json((json.items ?? []).map((e) => ({
+    id: e.id,
+    title: e.summary ?? "(No title)",
+    start: e.start.dateTime ?? e.start.date ?? "",
+    end: e.end.dateTime ?? e.end.date ?? "",
+    allDay: !e.start.dateTime,
+  })))
+})
+
+// GET /api/v1/calendar-providers/microsoft/calendars/:category/events
+// :category is the Outlook category displayName (URI-encoded).
+router.get("/microsoft/calendars/:category/events", async (req: Request, res: Response) => {
+  const { householdId } = (req as AuthRequest).user
+  if (!householdId) { res.status(403).json({ error: "No household." }); return }
+  const token = await getValidToken(householdId, "microsoft")
+  if (!token) { res.status(404).json({ error: "Microsoft not connected." }); return }
+  const category = decodeURIComponent(req.params.category as string)
+  const timeMin = new Date().toISOString()
+  const filter = `categories/any(a:a eq '${category}') and end/dateTime ge '${timeMin}'`
+  const select = "id,subject,start,end,isAllDay"
+  const url = `https://graph.microsoft.com/v1.0/me/events?$filter=${encodeURIComponent(filter)}&$top=30&$orderby=start/dateTime&$select=${select}`
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+  if (!r.ok) { res.status(502).json({ error: "Microsoft events fetch failed." }); return }
+  type MEvent = { id: string; subject?: string; start: { dateTime: string }; end: { dateTime: string }; isAllDay?: boolean }
+  const json = (await r.json()) as { value: MEvent[] }
+  res.json((json.value ?? []).map((e) => ({
+    id: e.id,
+    title: e.subject ?? "(No title)",
+    start: e.start.dateTime,
+    end: e.end.dateTime,
+    allDay: e.isAllDay ?? false,
+  })))
+})
+
+// ---------------------------------------------------------------------------
+// Excluded events — events opted out during the import wizard
+// ---------------------------------------------------------------------------
+
+// GET /api/v1/calendar-providers/excluded-events
+router.get("/excluded-events", (req: Request, res: Response) => {
+  const { householdId } = (req as AuthRequest).user
+  if (!householdId) { res.json([]); return }
+  type Row = { provider: string; external_event_id: string }
+  const rows = getDb()
+    .prepare("SELECT provider, external_event_id FROM calendar_excluded_events WHERE household_id = ?")
+    .all(householdId) as Row[]
+  res.json(rows.map((r) => ({ provider: r.provider, eventId: r.external_event_id })))
+})
+
+// PUT /api/v1/calendar-providers/excluded-events
+// Replaces the full exclusion list for a provider.
+router.put("/excluded-events", (req: Request, res: Response) => {
+  const { householdId } = (req as AuthRequest).user
+  if (!householdId) { res.status(403).json({ error: "No household." }); return }
+  const items = req.body as Array<{ provider: string; eventId: string }>
+  if (!Array.isArray(items)) { res.status(400).json({ error: "Body must be an array." }); return }
+
+  const db = getDb()
+  const providers = [...new Set(items.map((i) => i.provider))]
+  const del = db.prepare("DELETE FROM calendar_excluded_events WHERE household_id=? AND provider=?")
+  const ins = db.prepare(
+    `INSERT OR IGNORE INTO calendar_excluded_events (id, household_id, provider, external_event_id)
+     VALUES (?, ?, ?, ?)`
+  )
+  db.transaction(() => {
+    for (const p of providers) del.run(householdId, p)
+    for (const item of items) {
+      if (!item.provider || !item.eventId) continue
+      ins.run(uuidv4(), householdId, item.provider, item.eventId)
+    }
+  })()
+  res.json({ ok: true })
+})
+
+// ---------------------------------------------------------------------------
 // Mappings CRUD
 // ---------------------------------------------------------------------------
 
