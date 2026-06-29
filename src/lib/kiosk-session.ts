@@ -66,9 +66,21 @@ function setDeviceToken(token: string) {
   } catch { /* noop */ }
 }
 
-/** Returns the local hub device UUID (decoded from the stored JWT). */
+/** Returns the local hub device UUID. Falls back to decoding the stored JWT if the ID key is missing (handles devices that registered before this key was introduced). */
 export function getLocalDeviceId(): string | null {
-  try { return localStorage.getItem(DEVICE_ID_KEY) } catch { return null }
+  try {
+    const stored = localStorage.getItem(DEVICE_ID_KEY)
+    if (stored) return stored
+    // Backfill from the existing device JWT
+    const token = localStorage.getItem(TOKEN_KEY)
+    if (!token) return null
+    const payload = JSON.parse(atob(token.split('.')[1])) as { sub?: string }
+    if (payload.sub) {
+      localStorage.setItem(DEVICE_ID_KEY, payload.sub)
+      return payload.sub
+    }
+    return null
+  } catch { return null }
 }
 
 function clearDeviceToken() {
