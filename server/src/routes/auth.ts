@@ -1,161 +1,107 @@
 /**
- * routes/auth.ts — local account registration, login, refresh, and session.
+ * routes/auth.ts — Supabase-backed authentication.
  *
- * POST /auth/register   — create account + household (first-time setup)
- * POST /auth/login      — email + password -> access + refresh tokens
- * POST /auth/refresh    — swap a valid refresh token for a new access token
- * GET  /auth/session    — validate access token and return current user
+ * User identity is now owned by Supabase. The hub validates Supabase JWTs and
+ * provisions a local user + household row on first sign-in.
+ *
+ * POST /auth/session   — exchange Supabase access token for local session info
+ *                        (creates local user + household if first time)
+ * GET  /auth/session   — return current session info from validated token
+ * GET  /auth/me        — alias for GET /auth/session
+ *
+ * Removed: /auth/register, /auth/login, /auth/refresh, /auth/change-password
+ *   → all handled by Supabase on the client (iOS / Portal) directly.
  */
 
 import { Router } from "express"
-import bcrypt from "bcryptjs"
 import { v4 as uuidv4 } from "uuid"
-import { getDb, parseJson } from "../db"
-import { signToken, signRefreshToken, verifyToken, requireAuth, type AuthRequest } from "../middleware/auth"
+import { getDb } from "../db"
+import { requireAuth, type AuthRequest } from "../middleware/auth"
+import { verifySupabaseToken } from "../lib/supabase"
 import type { Request, Response } from "express"
 
 const router = Router()
 
 // ---------------------------------------------------------------------------
-// POST /auth/register
+// POST /auth/session
+// Provision a local user + household from a Supabase access token.
+// Call this once after Supabase sign-in to bootstrap the local record.
 // ---------------------------------------------------------------------------
-router.post("/register", async (req: Request, res: Response) => {
-  const { name, email, password, householdName } = req.body as {
-    name?: string
-    email?: string
-    password?: string
-    householdName?: string
+router.post("/session", async (req: Request, res: Response) => {
+  const { access_token, household_name } = req.body as {
+    access_token?: string
+    household_name?: string
   }
 
-  if (!name?.trim() || !email?.trim() || !password) {
-    res.status(400).json({ error: "name, email and password are required." })
+  if (!access_token) {
+    res.status(400).json({ error: "access_token is required." })
+    return
+  }
+
+  const payload = await verifySupabaseToken(access_token)
+  if (!payload) {
+    res.status(401).json({ error: "Invalid or expired Supabase token." })
     return
   }
 
   const db = getDb()
-  const emailLower = email.trim().toLowerCase()
+  const supabaseId = payload.sub
+  const email = payload.email ?? ""
+  const name = payload.user_metadata?.name ?? payload.user_metadata?.full_name ?? email.split("@")[0] ?? "User"
 
-  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(emailLower)
-  if (existing) {
-    res.status(409).json({ error: "An account with this email already exists." })
-    return
-  }
-
-  const passwordHash = await bcrypt.hash(password, 12)
-  const userId = uuidv4()
-  const householdId = uuidv4()
-  const memberId = uuidv4()
-  const calendarId = uuidv4()
-  const hhName = householdName?.trim() || `${name.trim()}'s Family`
-
-  db.transaction(() => {
-    db.prepare(
-      "INSERT INTO households (id, name) VALUES (?, ?)",
-    ).run(householdId, hhName)
-
-    db.prepare(
-      "INSERT INTO users (id, household_id, email, name, password_hash) VALUES (?, ?, ?, ?, ?)",
-    ).run(userId, householdId, emailLower, name.trim(), passwordHash)
-
-    db.prepare(
-      `INSERT INTO members (id, household_id, user_id, name, initial, color, role, permissions, account)
-       VALUES (?, ?, ?, ?, ?, 'blue', 'admin', '[]', ?)`,
-    ).run(memberId, householdId, userId, name.trim(), name.trim().charAt(0).toUpperCase(), emailLower)
-
-    // Seed a default "Family" calendar
-    db.prepare(
-      `INSERT INTO calendars (id, household_id, name, color, member_ids)
-       VALUES (?, ?, 'Family', 'blue', ?)`,
-    ).run(calendarId, householdId, JSON.stringify([memberId]))
-  })()
-
-  const accessToken = signToken({ sub: userId, householdId, email: emailLower, name: name.trim() })
-  const refreshToken = signRefreshToken({ sub: userId, householdId, email: emailLower, name: name.trim() })
-
-  res.status(201).json({
-    token: accessToken,
-    refreshToken,
-    user: { id: userId, email: emailLower, name: name.trim() },
-    household: { id: householdId, name: hhName },
-  })
-})
-
-// ---------------------------------------------------------------------------
-// POST /auth/login
-// ---------------------------------------------------------------------------
-router.post("/login", async (req: Request, res: Response) => {
-  const { email, password } = req.body as { email?: string; password?: string }
-
-  if (!email?.trim() || !password) {
-    res.status(400).json({ error: "email and password are required." })
-    return
-  }
-
-  const db = getDb()
-  const emailLower = email.trim().toLowerCase()
-  const user = db
-    .prepare("SELECT id, household_id, name, password_hash FROM users WHERE email = ?")
-    .get(emailLower) as { id: string; household_id: string; name: string; password_hash: string } | undefined
+  // Check if local user already exists
+  let user = db
+    .prepare("SELECT id, household_id, name, email FROM users WHERE supabase_id = ?")
+    .get(supabaseId) as { id: string; household_id: string; name: string; email: string } | undefined
 
   if (!user) {
-    res.status(401).json({ error: "Incorrect email or password." })
-    return
-  }
+    // First sign-in — provision local user + household
+    const userId      = uuidv4()
+    const householdId = uuidv4()
+    const memberId    = uuidv4()
+    const calendarId  = uuidv4()
+    const hhName      = household_name?.trim() || `${name}'s Family`
 
-  const match = await bcrypt.compare(password, user.password_hash)
-  if (!match) {
-    res.status(401).json({ error: "Incorrect email or password." })
-    return
+    db.transaction(() => {
+      db.prepare("INSERT INTO households (id, name) VALUES (?, ?)").run(householdId, hhName)
+
+      db.prepare(
+        "INSERT INTO users (id, household_id, email, name, supabase_id) VALUES (?, ?, ?, ?, ?)",
+      ).run(userId, householdId, email, name, supabaseId)
+
+      db.prepare(
+        `INSERT INTO members (id, household_id, user_id, name, initial, color, role, permissions, account)
+         VALUES (?, ?, ?, ?, ?, 'blue', 'admin', '[]', ?)`,
+      ).run(memberId, householdId, userId, name, name.charAt(0).toUpperCase(), email)
+
+      db.prepare(
+        `INSERT INTO calendars (id, household_id, name, color, member_ids)
+         VALUES (?, ?, 'Family', 'blue', ?)`,
+      ).run(calendarId, householdId, JSON.stringify([memberId]))
+    })()
+
+    user = { id: userId, household_id: householdId, name, email }
+    console.log(`[auth] Provisioned local user  supabase_id=${supabaseId}  user_id=${userId}`)
   }
 
   const household = db
     .prepare("SELECT id, name FROM households WHERE id = ?")
     .get(user.household_id) as { id: string; name: string }
 
-  const payload = { sub: user.id, householdId: user.household_id, email: emailLower, name: user.name }
-  const accessToken = signToken(payload)
-  const refreshToken = signRefreshToken(payload)
-
   res.json({
-    token: accessToken,
-    refreshToken,
-    user: { id: user.id, email: emailLower, name: user.name },
-    household,
+    user:      { id: user.id, email: user.email, name: user.name },
+    household: { id: household.id, name: household.name },
   })
 })
 
 // ---------------------------------------------------------------------------
-// POST /auth/refresh
-// ---------------------------------------------------------------------------
-router.post("/refresh", (req: Request, res: Response) => {
-  const { refreshToken } = req.body as { refreshToken?: string }
-  if (!refreshToken) {
-    res.status(400).json({ error: "refreshToken is required." })
-    return
-  }
-  try {
-    const payload = verifyToken(refreshToken)
-    const newAccess = signToken({
-      sub: payload.sub,
-      householdId: payload.householdId,
-      email: payload.email,
-      name: payload.name,
-    })
-    res.json({ token: newAccess })
-  } catch {
-    res.status(401).json({ error: "Invalid or expired refresh token." })
-  }
-})
-
-// ---------------------------------------------------------------------------
-// GET /auth/session  (and /auth/me — client alias)
+// GET /auth/session  (and /auth/me)
+// Returns the current user + household from the validated Bearer token.
 // ---------------------------------------------------------------------------
 router.get(["/session", "/me"], requireAuth, (req: Request, res: Response) => {
   const { sub, householdId, email, name, role } = (req as AuthRequest).user
   const db = getDb()
 
-  // Kiosk device tokens have role "kiosk". Return a lightweight device
-  // session so the client doesn't get a 404 on an unpaired device.
   if (role === "kiosk") {
     const device = db
       .prepare("SELECT id, device_name, household_id FROM kiosk_devices WHERE id = ?")
@@ -168,57 +114,28 @@ router.get(["/session", "/me"], requireAuth, (req: Request, res: Response) => {
       : undefined
 
     res.json({
-      user: { id: sub, email: null, name: device?.device_name ?? name ?? "Kiosk" },
+      user:      { id: sub, email: null, name: device?.device_name ?? name ?? "Kiosk" },
       household: household ?? null,
-      isKiosk: true,
+      isKiosk:   true,
     })
     return
   }
 
-  const household = db
-    .prepare("SELECT id, name FROM households WHERE id = ?")
-    .get(householdId) as { id: string; name: string } | undefined
+  const household = householdId
+    ? (db.prepare("SELECT id, name FROM households WHERE id = ?").get(householdId) as
+        | { id: string; name: string }
+        | undefined)
+    : undefined
 
   if (!household) {
-    res.status(404).json({ error: "Household not found." })
+    res.status(404).json({ error: "Household not found. Call POST /auth/session to provision." })
     return
   }
+
   res.json({
-    user: { id: sub, email, name },
-    household,
+    user:      { id: sub, email, name },
+    household: { id: household.id, name: household.name },
   })
-})
-
-// ---------------------------------------------------------------------------
-// POST /auth/change-password
-// ---------------------------------------------------------------------------
-router.post("/change-password", requireAuth, async (req: Request, res: Response) => {
-  const { currentPassword, newPassword } = req.body as {
-    currentPassword?: string
-    newPassword?: string
-  }
-  if (!currentPassword || !newPassword) {
-    res.status(400).json({ error: "currentPassword and newPassword are required." })
-    return
-  }
-  const db = getDb()
-  const { sub } = (req as AuthRequest).user
-  const user = db
-    .prepare("SELECT password_hash FROM users WHERE id = ?")
-    .get(sub) as { password_hash: string } | undefined
-
-  if (!user) {
-    res.status(404).json({ error: "User not found." })
-    return
-  }
-  const match = await bcrypt.compare(currentPassword, user.password_hash)
-  if (!match) {
-    res.status(401).json({ error: "Current password is incorrect." })
-    return
-  }
-  const newHash = await bcrypt.hash(newPassword, 12)
-  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(newHash, sub)
-  res.status(204).end()
 })
 
 export { router as authRouter }

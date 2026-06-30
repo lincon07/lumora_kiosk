@@ -98,6 +98,7 @@ function migrate(db: Database.Database): void {
     }
   }
 
+  addColumnSafe("users",  "supabase_id",      "TEXT")
   addColumnSafe("events", "source",          "TEXT")
   addColumnSafe("events", "source_event_id", "TEXT")
   addColumnSafe("lists",      "position", "INTEGER NOT NULL DEFAULT 0")

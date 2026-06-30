@@ -1,9 +1,12 @@
 /**
  * auth.ts — JWT authentication middleware for Express routes and Socket.IO.
  *
- * Tokens are HS256 JWTs signed with the on-disk secret at $HOME/.lumora/.secret.
- * Every API route (except /auth/register and /auth/login) requires a valid token.
- * Socket.IO connections pass the token in the handshake auth object: { token }.
+ * Two token kinds are accepted:
+ *  - Device tokens (kiosk/hub):  HS256, signed with on-disk secret at ~/.lumora/.secret
+ *  - User tokens (Supabase):     HS256, signed by Supabase with SUPABASE_JWT_SECRET
+ *
+ * Detection: Supabase JWTs have iss="https://<ref>.supabase.co/auth/v1".
+ * Device tokens have no iss field (or iss set to our own server).
  */
 
 import type { Request, Response, NextFunction } from "express"
@@ -11,16 +14,17 @@ import jwt from "jsonwebtoken"
 import type { Socket } from "socket.io"
 import { getOrCreateSecret, getDb } from "../db"
 import type { JwtPayload, ServerToClientEvents, ClientToServerEvents, SocketData } from "../types"
+import { verifySupabaseToken } from "../lib/supabase"
 
 export type AuthRequest = Request & {
   user: JwtPayload & { userId: string }
 }
 
 // ---------------------------------------------------------------------------
-// Token helpers
+// Device token helpers (kiosk / hub — unchanged)
 // ---------------------------------------------------------------------------
 
-/** Sign a new access token (default 24h expiry). Pass expiresIn to override. */
+/** Sign a new device access token. Pass expiresIn to override default 24h. */
 export function signToken(
   payload: Omit<JwtPayload, "iat" | "exp">,
   expiresIn: string = "24h",
@@ -28,18 +32,18 @@ export function signToken(
   return jwt.sign(payload, getOrCreateSecret(), {
     algorithm: "HS256",
     expiresIn,
-  })
+  } as jwt.SignOptions)
 }
 
-/** Sign a refresh token (30d expiry). */
+/** Sign a device refresh token (30d expiry). */
 export function signRefreshToken(payload: Omit<JwtPayload, "iat" | "exp">): string {
   return jwt.sign(payload, getOrCreateSecret(), {
     algorithm: "HS256",
     expiresIn: "30d",
-  })
+  } as jwt.SignOptions)
 }
 
-/** Verify and decode a token. Throws on invalid/expired tokens. */
+/** Verify and decode a device token. Throws on invalid/expired tokens. */
 export function verifyToken(token: string): JwtPayload {
   return jwt.verify(token, getOrCreateSecret(), {
     algorithms: ["HS256"],
@@ -47,12 +51,26 @@ export function verifyToken(token: string): JwtPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Token kind detection
+// ---------------------------------------------------------------------------
+
+function isSupabaseToken(token: string): boolean {
+  try {
+    const raw = jwt.decode(token) as Record<string, unknown> | null
+    const iss = raw?.iss as string | undefined
+    return typeof iss === "string" && iss.includes("supabase")
+  } catch {
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Express middleware
 // ---------------------------------------------------------------------------
 
 /**
- * requireAuth — attach req.user or respond 401.
- * Apply to every router EXCEPT /auth.
+ * requireAuth — resolves req.user from either a Supabase user token or a
+ * device (kiosk/hub) token. Responds 401 on missing/invalid tokens.
  */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization
@@ -61,20 +79,42 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return
   }
   const token = header.slice(7).trim()
+
+  if (isSupabaseToken(token)) {
+    // Async path — verify Supabase JWT
+    void verifySupabaseToken(token).then((payload) => {
+      if (!payload) {
+        res.status(401).json({ error: "Invalid or expired Supabase token." })
+        return
+      }
+      // Look up local user record by supabase_id to get householdId
+      const db = getDb()
+      const row = db
+        .prepare("SELECT id, household_id, name, email FROM users WHERE supabase_id = ?")
+        .get(payload.sub) as { id: string; household_id: string; name: string; email: string } | undefined
+
+      ;(req as AuthRequest).user = {
+        sub:         row?.id ?? payload.sub,
+        userId:      row?.id ?? payload.sub,
+        householdId: row?.household_id,
+        email:       row?.email ?? payload.email,
+        name:        row?.name ?? payload.user_metadata?.name ?? payload.user_metadata?.full_name,
+        role:        "member",
+      }
+      next()
+    })
+    return
+  }
+
+  // Device token path (kiosk / hub — synchronous)
   try {
     const payload = verifyToken(token)
 
-    // Kiosk device tokens are signed without a householdId because the device
-    // may not be paired yet at registration time. If it IS paired, look up the
-    // household_id from the kiosk_devices table so every downstream route
-    // sees a valid householdId and can serve the request normally.
     if (payload.role === "kiosk" && !payload.householdId) {
       const row = getDb()
         .prepare("SELECT household_id FROM kiosk_devices WHERE id = ?")
         .get(payload.sub) as { household_id: string | null } | undefined
-      if (row?.household_id) {
-        payload.householdId = row.household_id
-      }
+      if (row?.household_id) payload.householdId = row.household_id
     }
 
     ;(req as AuthRequest).user = { ...payload, userId: payload.sub }
@@ -85,15 +125,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
 }
 
-/**
- * requireAdmin — must follow requireAuth.
- * Checks that the member linked to req.user is an admin.
- * Import and use on admin-only routes.
- */
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  // Role checking happens at the route layer using the DB; this is a
-  // placeholder that routes can call after requireAuth.
-  // The actual role lookup is done inline in the routes that need it.
   next()
 }
 
@@ -103,10 +135,6 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
 
 type AuthenticatedSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>
 
-/**
- * socketAuth — validates the JWT from socket.handshake.auth.token.
- * Rejects the connection with a 401-equivalent error if invalid.
- */
 export function socketAuth(
   socket: AuthenticatedSocket,
   next: (err?: Error) => void,
@@ -116,10 +144,26 @@ export function socketAuth(
     next(new Error("UNAUTHORIZED: No token provided."))
     return
   }
+
+  if (isSupabaseToken(token)) {
+    void verifySupabaseToken(token).then((payload) => {
+      if (!payload) { next(new Error("UNAUTHORIZED: Invalid Supabase token.")); return }
+      const db = getDb()
+      const row = db
+        .prepare("SELECT id, household_id, name, email FROM users WHERE supabase_id = ?")
+        .get(payload.sub) as { id: string; household_id: string; name: string; email: string } | undefined
+
+      socket.data.userId      = row?.id ?? payload.sub
+      socket.data.householdId = row?.household_id ?? ""
+      socket.data.email       = row?.email ?? payload.email ?? ""
+      socket.data.name        = row?.name ?? payload.user_metadata?.name ?? ""
+      next()
+    })
+    return
+  }
+
   try {
     const payload = verifyToken(token)
-
-    // Same lookup as requireAuth — resolve householdId for paired kiosk devices.
     let householdId = payload.householdId ?? ""
     if (payload.role === "kiosk" && !householdId) {
       const row = getDb()
@@ -127,11 +171,10 @@ export function socketAuth(
         .get(payload.sub) as { household_id: string | null } | undefined
       householdId = row?.household_id ?? ""
     }
-
-    socket.data.userId = payload.sub
+    socket.data.userId      = payload.sub
     socket.data.householdId = householdId
-    socket.data.email = payload.email ?? ""
-    socket.data.name = payload.name ?? ""
+    socket.data.email       = payload.email ?? ""
+    socket.data.name        = payload.name ?? ""
     next()
   } catch (err) {
     const msg = err instanceof jwt.TokenExpiredError ? "EXPIRED" : "UNAUTHORIZED"

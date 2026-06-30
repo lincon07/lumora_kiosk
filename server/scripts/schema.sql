@@ -15,19 +15,21 @@ CREATE TABLE IF NOT EXISTS households (
 );
 
 -- ---------------------------------------------------------------------------
--- users  (local accounts — email + bcrypt hash, no Supabase)
+-- users  (identity via Supabase Auth — supabase_id links to auth.users)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   household_id  TEXT NOT NULL REFERENCES households(id) ON DELETE CASCADE,
   email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
   name          TEXT NOT NULL,
-  password_hash TEXT NOT NULL,
+  supabase_id   TEXT UNIQUE,   -- Supabase auth.users.id (uuid)
+  password_hash TEXT,          -- kept nullable for legacy rows during migration
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_household ON users(household_id);
-CREATE INDEX IF NOT EXISTS idx_users_email     ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_household   ON users(household_id);
+CREATE INDEX IF NOT EXISTS idx_users_email       ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_supabase_id ON users(supabase_id);
 
 -- ---------------------------------------------------------------------------
 -- members  (household roster — may or may not be linked to a user account)
