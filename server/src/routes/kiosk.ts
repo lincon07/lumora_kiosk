@@ -12,7 +12,7 @@
 import { Router, type Request, type Response } from "express"
 import crypto from "crypto"
 import { getDb } from "../db"
-import { requireAuth } from "../middleware/auth"
+import { requireAuth, type AuthRequest } from "../middleware/auth"
 import { signToken } from "../middleware/auth"
 
 export const kioskRouter = Router()
@@ -357,7 +357,7 @@ kioskRouter.get("/central-token/:localDeviceId", requireAuth, (req: Request, res
 // Auth: device JWT (the kiosk's own token).
 // ---------------------------------------------------------------------------
 kioskRouter.post("/request-central-token", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const localDeviceId = (req as Request & { auth?: { sub?: string } }).auth?.sub
+  const localDeviceId = (req as AuthRequest).user?.userId
   if (!localDeviceId) { res.status(400).json({ error: "Could not resolve device ID from token" }); return }
 
   // Check if already registered

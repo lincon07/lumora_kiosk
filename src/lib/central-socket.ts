@@ -190,10 +190,19 @@ class CentralSocket {
     const deviceToken = tokenStore.get()
     if (!deviceToken) return null
     try {
-      const res = await fetch(`${LOCAL_API_BASE}/api/v1/kiosk/central-token/${localDeviceId}`, {
-        headers: { Authorization: `Bearer ${deviceToken}` },
-        signal:  AbortSignal.timeout(5000),
+      const headers = { Authorization: `Bearer ${deviceToken}` }
+      let res = await fetch(`${LOCAL_API_BASE}/api/v1/kiosk/central-token/${localDeviceId}`, {
+        headers,
+        signal: AbortSignal.timeout(5000),
       })
+      // 503 = hub hasn't registered this kiosk yet — trigger on-demand registration
+      if (res.status === 503) {
+        res = await fetch(`${LOCAL_API_BASE}/api/v1/kiosk/request-central-token`, {
+          method: "POST",
+          headers,
+          signal: AbortSignal.timeout(10000),
+        })
+      }
       if (!res.ok) return null
       const data = (await res.json()) as { token: string }
       setCentralToken(data.token, localDeviceId)

@@ -60,6 +60,11 @@ export function getCentralKioskToken(localDeviceId: string): string | null {
   return _credentials?.kiosks?.[localDeviceId]?.central_jwt ?? null
 }
 
+/** Returns both the central device UUID and JWT for a local kiosk device id. */
+export function getCentralKioskCredentials(localDeviceId: string): { central_device_id: string; central_jwt: string } | null {
+  return _credentials?.kiosks?.[localDeviceId] ?? null
+}
+
 /**
  * Registers this hub (and all paired kiosks) with the central API.
  * Safe to call on every boot — re-uses stored credentials if already registered.

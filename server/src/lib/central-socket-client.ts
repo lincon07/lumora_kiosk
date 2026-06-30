@@ -8,6 +8,7 @@
 
 import { io, type Socket } from "socket.io-client"
 import { getDb } from "../db"
+import { getCentralKioskCredentials } from "./central-registry"
 
 const CENTRAL_SOCKET_URL = process.env.CENTRAL_SOCKET_URL ?? "http://localhost:5001"
 const CENTRAL_API_URL    = process.env.CENTRAL_API_URL    ?? "http://localhost:4000"
@@ -19,14 +20,14 @@ let _heartbeatTimer: ReturnType<typeof setInterval> | null = null
 function sendRestHeartbeat(hubJwt: string): void {
   const db = getDb()
   const kiosks = db.prepare(
-    "SELECT id, is_online, wifi_signal, last_heartbeat FROM kiosk_devices WHERE household_id IS NOT NULL"
-  ).all() as Array<{ id: string; is_online: number; wifi_signal: number | null; last_heartbeat: string | null }>
+    "SELECT id, is_online, wifi_signal FROM kiosk_devices WHERE household_id IS NOT NULL"
+  ).all() as Array<{ id: string; is_online: number; wifi_signal: number | null }>
 
-  const devices = kiosks.map(k => ({
-    id:          k.id,
-    is_online:   k.is_online === 1,
-    wifi_signal: k.wifi_signal ?? null,
-  }))
+  const devices = kiosks.flatMap(k => {
+    const creds = getCentralKioskCredentials(k.id)
+    if (!creds) return []   // not yet registered with central — skip
+    return [{ id: creds.central_device_id, is_online: k.is_online === 1, wifi_signal: k.wifi_signal ?? null }]
+  })
 
   fetch(`${CENTRAL_API_URL}/devices/heartbeat`, {
     method:  "POST",

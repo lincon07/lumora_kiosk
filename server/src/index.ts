@@ -14,7 +14,6 @@ import express, { type Request, type Response, type NextFunction } from "express
 import { createServer } from "http"
 import { Server as SocketIOServer } from "socket.io"
 import cors from "cors"
-import path from "path"
 
 import { getDb, PHOTOS_DIR, ensureDataDir, getOrCreateSecret } from "./db"
 import { setBroadcaster } from "./broadcaster"
