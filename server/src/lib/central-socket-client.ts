@@ -7,11 +7,34 @@
  */
 
 import { io, type Socket } from "socket.io-client"
+import { getDb } from "../db"
 
 const CENTRAL_SOCKET_URL = process.env.CENTRAL_SOCKET_URL ?? "http://localhost:5001"
+const CENTRAL_API_URL    = process.env.CENTRAL_API_URL    ?? "http://localhost:4000"
 
-let _socket: Socket | null = null
-let _hubJwt: string | null = null
+let _socket:    Socket | null = null
+let _hubJwt:    string | null = null
+let _heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+function sendRestHeartbeat(hubJwt: string): void {
+  const db = getDb()
+  const kiosks = db.prepare(
+    "SELECT id, is_online, wifi_signal, last_heartbeat FROM kiosk_devices WHERE household_id IS NOT NULL"
+  ).all() as Array<{ id: string; is_online: number; wifi_signal: number | null; last_heartbeat: string | null }>
+
+  const devices = kiosks.map(k => ({
+    id:          k.id,
+    is_online:   k.is_online === 1,
+    wifi_signal: k.wifi_signal ?? null,
+  }))
+
+  fetch(`${CENTRAL_API_URL}/devices/heartbeat`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${hubJwt}` },
+    body:    JSON.stringify({ devices }),
+    signal:  AbortSignal.timeout(5000),
+  }).catch((e) => console.warn("[central] heartbeat failed:", (e as Error).message))
+}
 
 /** Connect to the central socket server using the hub's JWT. */
 export function connectHubToCentral(hubJwt: string): void {
@@ -20,6 +43,10 @@ export function connectHubToCentral(hubJwt: string): void {
   if (_socket) {
     _socket.disconnect()
     _socket = null
+  }
+  if (_heartbeatTimer) {
+    clearInterval(_heartbeatTimer)
+    _heartbeatTimer = null
   }
 
   _hubJwt = hubJwt
@@ -34,12 +61,16 @@ export function connectHubToCentral(hubJwt: string): void {
 
   _socket.on("connect", () => {
     console.log("[central-socket] Hub connected to central socket  url=" + CENTRAL_SOCKET_URL)
-    // Send initial heartbeat so portal sees the hub as online
     _socket?.emit("hub:heartbeat", { kiosk_count: 0, online_count: 0 })
+    // Send REST heartbeat immediately so portal shows hub as online
+    sendRestHeartbeat(hubJwt)
+    // Then every 60 seconds
+    _heartbeatTimer = setInterval(() => sendRestHeartbeat(hubJwt), 60_000)
   })
 
   _socket.on("disconnect", (reason: string) => {
     console.log("[central-socket] Hub disconnected from central socket:", reason)
+    if (_heartbeatTimer) { clearInterval(_heartbeatTimer); _heartbeatTimer = null }
   })
 
   _socket.on("connect_error", (err: Error) => {
