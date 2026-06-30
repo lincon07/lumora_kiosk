@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express"
 import { v4 as uuidv4 } from "uuid"
+import crypto from "crypto"
 import bcrypt from "bcryptjs"
 import { getDb } from "../db"
 import { requireAuth, signToken, signRefreshToken, type AuthRequest } from "../middleware/auth"
@@ -9,9 +10,9 @@ const router = Router()
 
 function inviteCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-  const pick = (n: number) =>
-    Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
-  return `${pick(3)}-${pick(3)}`
+  const bytes = crypto.randomBytes(6)
+  const code = Array.from(bytes, b => chars[b % chars.length]).join("")
+  return `${code.slice(0, 3)}-${code.slice(3, 6)}`
 }
 
 function rowToInvite(r: Record<string, unknown>): Invite {

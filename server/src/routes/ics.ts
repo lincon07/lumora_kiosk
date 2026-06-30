@@ -12,6 +12,7 @@ import { Router, type Request, type Response } from "express"
 import crypto from "crypto"
 import { getDb } from "../db"
 import { getOrCreateSecret } from "../db"
+import { requireAuth, type AuthRequest } from "../middleware/auth"
 
 const router = Router()
 
@@ -32,10 +33,12 @@ function toIcsDate(dateStr: string, timeStr: string | null): string {
 }
 
 // GET /ics/token/:householdId — returns the ICS subscription URL token
-// (auth-protected, called from settings to show the URL to the user)
-router.get("/token/:householdId", (req: Request, res: Response) => {
+router.get("/token/:householdId", requireAuth, (req: Request, res: Response) => {
   const { householdId } = req.params
-  // Verify householdId exists
+  const caller = (req as AuthRequest).user
+  if (caller.householdId !== householdId) {
+    res.status(403).json({ error: "Forbidden." }); return
+  }
   const exists = getDb().prepare("SELECT id FROM households WHERE id=?").get(householdId)
   if (!exists) { res.status(404).json({ error: "Not found." }); return }
   res.json({ token: icsToken(householdId), householdId })

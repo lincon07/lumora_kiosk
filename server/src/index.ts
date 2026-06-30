@@ -17,7 +17,7 @@ import cors from "cors"
 
 import { getDb, PHOTOS_DIR, ensureDataDir, getOrCreateSecret } from "./db"
 import { setBroadcaster } from "./broadcaster"
-import { socketAuth } from "./middleware/auth"
+import { socketAuth, requireAuth } from "./middleware/auth"
 
 import { authRouter } from "./routes/auth"
 import { membersRouter } from "./routes/members"
@@ -141,9 +141,8 @@ app.get("/central-identity", (_req: Request, res: Response) => {
   res.json({ hub_id: creds.hub_id })
 })
 
-// Connection health — no auth required so factory-reset kiosks and iOS can hit it
-// Returns the full registration + connectivity status for every step of the chain.
-app.get("/connection-health", async (_req: Request, res: Response) => {
+// Connection health — requires auth. Returns connectivity + registration status.
+app.get("/connection-health", requireAuth, async (_req: Request, res: Response) => {
   const CENTRAL_API_URL    = process.env.CENTRAL_API_URL    ?? "http://localhost:4000"
   const CENTRAL_SOCKET_URL = process.env.CENTRAL_SOCKET_URL ?? "http://localhost:5001"
 

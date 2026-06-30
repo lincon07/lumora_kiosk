@@ -126,6 +126,16 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+  const user = (req as AuthRequest).user
+  if (!user) { res.status(401).json({ error: "Authentication required." }); return }
+  const db = getDb()
+  const member = db
+    .prepare("SELECT role FROM members WHERE user_id = ? AND household_id = ?")
+    .get(user.userId, user.householdId) as { role: string } | undefined
+  if (!member || member.role !== "admin") {
+    res.status(403).json({ error: "Admin access required." })
+    return
+  }
   next()
 }
 

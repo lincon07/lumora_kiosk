@@ -327,9 +327,9 @@ kioskRouter.post("/kiosk-devices/heartbeat", requireAuth, (req: Request, res: Re
 
 function genPairingCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-  const pick = (n: number) =>
-    Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
-  return `${pick(3)}-${pick(3)}`
+  const bytes = require("crypto").randomBytes(6) as Buffer
+  const code = Array.from(bytes, (b: number) => chars[b % chars.length]).join("")
+  return `${code.slice(0, 3)}-${code.slice(3, 6)}`
 }
 
 // ---------------------------------------------------------------------------
