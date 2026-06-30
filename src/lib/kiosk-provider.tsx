@@ -265,8 +265,19 @@ export function KioskProvider({ children }: { children: ReactNode }) {
         }
 
         // Fetch pairing/claim state.
-        const server = await fetchKioskState()
+        let server = await fetchKioskState()
         if (!alive) return
+
+        // Hub DB was wiped — token was cleared inside fetchKioskState.
+        // Re-register fresh so we get a new pairing code.
+        if (!server.found) {
+          const ok2 = await doRegister(local.deviceName ?? undefined)
+          if (!alive) return
+          if (!ok2) { setLoading(false); return }
+          server = await fetchKioskState()
+          if (!alive) return
+        }
+
         pairedRef.current = server.paired
         setState(server)
         readyRef.current = true
