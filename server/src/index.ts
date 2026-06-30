@@ -9,7 +9,7 @@
 
 import path from "path"
 import dotenv from "dotenv"
-dotenv.config({ path: path.resolve(__dirname, "../../.env") })
+dotenv.config({ path: path.resolve(__dirname, "../.env") })
 import express, { type Request, type Response, type NextFunction } from "express"
 import { createServer } from "http"
 import { Server as SocketIOServer } from "socket.io"
