@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, WrenchIcon } from "lucide-react"
 import { SideNav } from "@/components/ui/reusables/side-nav"
 import { HeaderNav } from "@/components/ui/reusables/header-nav"
 import { MemberChips } from "@/components/ui/reusables/member-chips"
@@ -47,6 +47,7 @@ export function KioskAppShell() {
   const head = headers[tab]
 
   const [slideshowActive, setSlideshowActive] = useState(false)
+  const [maintenanceLock, setMaintenanceLock] = useState<{ locked: boolean; reason?: string }>({ locked: false })
   // Keep idle mins in local state so hub commands can update it live without a full reload
   const [idleMins, setIdleMins] = useState<number | null>(deviceState.slideshowIdleMins ?? 5)
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -90,9 +91,10 @@ export function KioskAppShell() {
     const unsubLock = centralSocket.onDeviceLock((payload) => {
       if (payload.locked) {
         addLog("info", "system", `Device locked for maintenance${payload.reason ? `: ${payload.reason}` : ""}`)
-        // TODO: show maintenance screen overlay
+        setMaintenanceLock({ locked: true, reason: payload.reason })
       } else {
         addLog("info", "system", "Device unlocked — resuming normal operation")
+        setMaintenanceLock({ locked: false })
       }
     })
 
@@ -183,6 +185,21 @@ export function KioskAppShell() {
 
       {slideshowActive && photos.length > 0 && (
         <SlideshowScreen photos={photos} onDismiss={dismissSlideshow} />
+      )}
+
+      {maintenanceLock.locked && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-6 bg-background/95 backdrop-blur-sm">
+          <div className="flex size-20 items-center justify-center rounded-full bg-member-amber/15">
+            <WrenchIcon className="size-10 text-member-amber" />
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold tracking-tight">Under Maintenance</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {maintenanceLock.reason ?? "This display is temporarily offline for maintenance."}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">It will resume automatically when unlocked.</p>
+        </div>
       )}
     </>
   )
