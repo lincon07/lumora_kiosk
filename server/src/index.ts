@@ -36,6 +36,7 @@ import { activityLogsRouter } from "./routes/activity-logs"
 import { icsRouter } from "./routes/ics"
 import { hubCommandRouter } from "./routes/hub-command"
 import { startCalendarSyncScheduler } from "./services/calendar-sync"
+import { startOtaPollScheduler } from "./services/ota-poll"
 import { ensureCentralRegistration } from "./lib/central-registry"
 import { connectHubToCentral, isCentralConnected } from "./lib/central-socket-client"
 
@@ -49,6 +50,7 @@ ensureDataDir()
 getOrCreateSecret() // generate HMAC secret on first boot
 getDb()             // open DB and run schema migration
 startCalendarSyncScheduler() // hourly Google / Microsoft calendar sync
+startOtaPollScheduler()      // every 5 min — relay pending OTA jobs to online kiosks
 
 const PORT = Number(process.env.LUMORA_PORT ?? 4000)
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Loader2, WrenchIcon } from "lucide-react"
+import { toast } from "sonner"
 import { SideNav } from "@/components/ui/reusables/side-nav"
 import { HeaderNav } from "@/components/ui/reusables/header-nav"
 import { MemberChips } from "@/components/ui/reusables/member-chips"
@@ -16,7 +17,7 @@ import { useStore, type TabKey } from "@/lib/store"
 import { SystemStatusBar } from "@/components/ui/reusables/system-status-bar"
 import { centralSocket } from "@/lib/central-socket"
 import { logConnectionHealth } from "@/lib/connection-health"
-import { restartHub, reloadDisplay, clearCache, addLog } from "@/lib/hub"
+import { restartHub, reloadDisplay, clearCache, addLog, checkForUpdates } from "@/lib/hub"
 import { setOrientation } from "@/lib/locale-service"
 import { patchDeviceState } from "@/lib/device-state"
 import { useKiosk } from "@/lib/kiosk-provider"
@@ -83,9 +84,10 @@ export function KioskAppShell() {
   // ── Central socket events (OTA, lock, notifications from portal) ──────────
   useEffect(() => {
     const unsubOta = centralSocket.onOtaPush((payload) => {
-      addLog("info", "system", `OTA update available: v${payload.version}`)
-      // TODO: trigger Tauri updater with payload.url + payload.signature
-      // window.__TAURI__?.updater.installUpdate()
+      addLog("info", "system", `OTA push received: v${payload.version} — checking updater`)
+      void checkForUpdates().catch(() => {
+        addLog("error", "system", `OTA update check failed for v${payload.version}`)
+      })
     })
 
     const unsubLock = centralSocket.onDeviceLock((payload) => {
@@ -100,7 +102,7 @@ export function KioskAppShell() {
 
     const unsubNotif = centralSocket.onNotification((payload) => {
       addLog("info", "system", `Notification: ${payload.title}`)
-      // Notifications ack back to portal
+      toast(payload.title, { description: payload.body, duration: 8000 })
       if (payload.notification_id) centralSocket.notificationAck(payload.notification_id)
     })
 
