@@ -15,10 +15,18 @@
 
 import { Router } from "express"
 import { v4 as uuidv4 } from "uuid"
-import { getDb } from "../db"
+import crypto from "crypto"
+import { getDb, getOrCreateSecret } from "../db"
 import { requireAuth, type AuthRequest } from "../middleware/auth"
 import { verifySupabaseToken } from "../lib/supabase"
+import { getHubJwt } from "../lib/central-registry"
+import jwt from "jsonwebtoken"
 import type { Request, Response } from "express"
+
+/** 32-byte AES-256-GCM key for E2E encrypting off-network relay payloads. */
+export function getRemoteKey(): Buffer {
+  return crypto.createHmac("sha256", getOrCreateSecret()).update("lumora-remote-access").digest()
+}
 
 const router = Router()
 
@@ -88,9 +96,15 @@ router.post("/session", async (req: Request, res: Response) => {
     .prepare("SELECT id, name FROM households WHERE id = ?")
     .get(user.household_id) as { id: string; name: string }
 
+  // Decode the hub's own JWT to get central hub_id (sub field)
+  const hubJwt = getHubJwt()
+  const hubId  = hubJwt ? (jwt.decode(hubJwt) as { sub?: string } | null)?.sub ?? null : null
+
   res.json({
     user:      { id: user.id, email: user.email, name: user.name },
     household: { id: household.id, name: household.name },
+    remoteKey: getRemoteKey().toString("hex"),
+    hubId,
   })
 })
 

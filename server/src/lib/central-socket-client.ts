@@ -9,6 +9,7 @@
 import { io, type Socket } from "socket.io-client"
 import { getDb } from "../db"
 import { getCentralKioskCredentials } from "./central-registry"
+import { registerRemoteRpc } from "../services/remote-rpc"
 
 const CENTRAL_SOCKET_URL = process.env.CENTRAL_SOCKET_URL ?? "http://localhost:5001"
 const CENTRAL_API_URL    = process.env.CENTRAL_API_URL    ?? "http://localhost:4000"
@@ -62,6 +63,7 @@ export function connectHubToCentral(hubJwt: string): void {
 
   _socket.on("connect", () => {
     console.log("[central-socket] Hub connected to central socket  url=" + CENTRAL_SOCKET_URL)
+    registerRemoteRpc(_socket!)
     _socket?.emit("hub:heartbeat", { kiosk_count: 0, online_count: 0 })
     // Send REST heartbeat immediately so portal shows hub as online
     sendRestHeartbeat(hubJwt)
